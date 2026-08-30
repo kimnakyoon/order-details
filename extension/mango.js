@@ -111,20 +111,29 @@
   // 그래서 보이는 칸에 넣은 뒤 숨은 칸도 같은 규칙으로 직접 다시 만든다: 빈 칸을 빼고 '\n' 로
   // 잇는다 (망고 목록 50행 전부에서 이 규칙이 맞는 것을 확인했다. 2026-08-30).
   //
-  // 매칭된 1개 행에서만 호출한다. 확장이 레이아웃을 읽는 곳은 여기 하나뿐이라,
-  // apply() 가 **다른 값을 쓰기 전에** 불러 강제 리플로우를 피한다 (0.053ms -> 0.007ms).
+  // 칸을 고를 때 **레이아웃을 읽지 않는다.**
+  //
+  // 예전에는 `offsetParent` 로 보이는 칸만 남기고 `getBoundingClientRect().y` 로 정렬했는데,
+  // 둘 다 강제 리플로우다. 요소 1.7만 개짜리 이 페이지에서는 레이아웃이 깨끗할 때 0.014ms,
+  // 더러울 때 **0.065ms** 까지 튄다 — 확장이 망고를 느리게 만들 수 있는 마지막 경로였다.
+  // 셀 안의 순서는 DOM 순서가 곧 화면 순서라(50행 전부에서 확인), 숨은 저장칸만 걸러내면
+  // 같은 결과가 나온다. 0.002ms 이고 레이아웃 상태와 무관하다.
   function writeMemo(uid, index, value) {
     const hidden = $('uid_usd_memo_' + uid);
     if (!hidden || !hidden.parentElement) return false;
-    const slots = [...hidden.parentElement.querySelectorAll('input[type=text], textarea')]
-      .filter((e) => e.offsetParent !== null)
-      .sort((a, b) => a.getBoundingClientRect().y - b.getBoundingClientRect().y);
+    const nodes = hidden.parentElement.querySelectorAll('input[type=text], textarea');
+    const slots = [];
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i] !== hidden) slots.push(nodes[i]);
+    }
     if (!slots[index]) return false;
     slots[index].value = value;
-    hidden.value = slots
-      .map((e) => e.value)
-      .filter((v) => v !== '')
-      .join('\n');
+    let joined = '';
+    for (let i = 0; i < slots.length; i++) {
+      if (slots[i].value === '') continue;
+      joined += (joined ? '\n' : '') + slots[i].value;
+    }
+    hidden.value = joined;
     return true;
   }
 
@@ -135,7 +144,6 @@
       return { ok: false, error: '해당 주문건이 반품/교환/취소완료 상태라 건드리지 않았습니다.' };
     }
 
-    // 값을 쓰기 전에 읽는다 — 쓰고 나서 읽으면 강제 리플로우가 걸린다.
     const memoWritten = writeMemo(uid, 1, p.url);
 
     const written = [
