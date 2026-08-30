@@ -1,0 +1,50 @@
+/* 주문번호 옆 인라인 버튼 (기본) */
+#lm-send-btn.lm-btn-inline {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 10px;
+  padding: 5px 12px;
+  font: 600 13px/1.2 "Malgun Gothic", sans-serif;
+  color: #fff;
+  background: #e8590c;
+  border: none;
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
+  cursor: pointer;
+}
+#lm-send-btn.lm-btn-inline:hover { background: #d9480f; }
+#lm-send-btn.lm-btn-inline:disabled { background: #adb5bd; cursor: default; }
+
+/* 주문번호를 못 찾았을 때의 폴백 (우측 하단 고정) */
+#lm-send-btn.lm-btn {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 2147483000;
+  padding: 12px 18px;
+  font: 600 14px/1.2 "Malgun Gothic", sans-serif;
+  color: #fff;
+  background: #e8590c;
+  border: none;
+  border-radius: 24px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .28);
+  cursor: pointer;
+}
+#lm-send-btn.lm-btn:hover { background: #d9480f; }
+#lm-send-btn.lm-btn:disabled { background: #adb5bd; cursor: default; }
+
+#lm-toast.lm-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 78px;
+  z-index: 2147483000;
+  max-width: 340px;
+  padding: 10px 14px;
+  font: 400 13px/1.5 "Malgun Gothic", sans-serif;
+  color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .28);
+}
+#lm-toast.lm-ok  { background: #2b8a3e; }
+#lm-toast.lm-err { background: #c92a2a; }
+#lm-toast.lm-info{ background: #343a40; }

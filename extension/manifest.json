@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "LotteOn → The.Mango 주문정보 전송",
+  "version": "1.1.0",
+  "description": "롯데온 주문상세 정보를 클릭 한 번으로 The.Mango 주문건에 옮기고 주문상태를 배송완료로 변경합니다.",
+  "permissions": ["tabs", "scripting"],
+  "host_permissions": [
+    "https://www.lotteon.com/*",
+    "https://tmg4087.mycafe24.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.lotteon.com/p/order/claim/orderDetail*"],
+      "js": ["lotteon.js"],
+      "css": ["lotteon.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
