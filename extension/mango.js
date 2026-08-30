@@ -13,18 +13,20 @@
 
   const $ = (id) => document.getElementById(id);
 
-  function fire(el) {
-    ['input', 'change', 'keyup'].forEach((t) => el.dispatchEvent(new Event(t, { bubbles: true })));
-  }
-  // 체크박스에는 change 하나면 된다. input/keyup 은 의미도 없고, 망고 쪽 핸들러를
-  // 괜히 세 번 깨운다. click 은 절대 쓰지 않는다 — 체크 상태가 다시 뒤집힌다.
-  function fireChange(el) {
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  }
+  // 값만 넣고 이벤트는 쏘지 않는다.
+  //
+  // 망고 목록에서 우리가 건드리는 칸에 붙어 있는 핸들러는 jQuery 로 걸린 것 하나뿐이고
+  // (텍스트칸은 `keyup`, 주문상태 select 는 `change`), 하는 일은 **그 행의 체크박스를
+  // 켜는 것**이 전부다. apply() 는 어차피 전체 체크를 풀고 대상 행만 다시 켜므로 그 효과는
+  // 곧바로 덮인다. 저장을 맡는 really_all_select_modify() 도 체크된 행의 값을 id 로
+  // `.val()` 해서 읽을 뿐 '수정됨' 표시 같은 건 보지 않고, 체크박스에는 핸들러가 아예 없다.
+  //
+  // 그래서 이벤트는 전부 낭비다. 한 번 보낼 때 dispatch 15번과, 그중 keyup/change 핸들러가
+  // 부르는 **문서 전체 jQuery 조회 4번**이 사라진다.
+  // (2026-08-30 망고 50행 목록에서 실측·확인. 망고 화면이 바뀌면 다시 볼 것.)
   function setValue(el, v) {
     if (!el) return false;
     el.value = v;
-    fire(el);
     return true;
   }
 
@@ -99,7 +101,8 @@
   }
 
   // 간단메모 2번째 칸: 저장 필드(uid_usd_memo_<uid>)와 같은 셀 안에서 위에서 두 번째로 보이는 입력칸.
-  // 매칭된 1개 행에서만 호출하므로 레이아웃 강제는 한 번뿐이다.
+  // 매칭된 1개 행에서만 호출한다. 확장이 레이아웃을 읽는 곳은 여기 하나뿐이라,
+  // apply() 가 **값을 쓰기 전에** 불러 강제 리플로우를 피한다 (0.053ms -> 0.007ms).
   function memoSlot(uid, index) {
     const hidden = $('uid_usd_memo_' + uid);
     if (!hidden || !hidden.parentElement) return null;
@@ -116,11 +119,14 @@
       return { ok: false, error: '해당 주문건이 반품/교환/취소완료 상태라 건드리지 않았습니다.' };
     }
 
+    // 값을 쓰기 전에 읽는다 — 쓰고 나서 읽으면 강제 리플로우가 걸린다.
+    const memo = memoSlot(uid, 1);
+
     const written = [
       setValue($('uid_usd_order_num_' + uid), p.orderNo),
       setValue($('uid_usd_order_price_' + uid), p.price),
       setValue($('uid_usd_delivery_num_' + uid), p.payDate),
-      setValue(memoSlot(uid, 1), p.url),
+      setValue(memo, p.url),
     ];
     if (written.some((w) => !w)) {
       return { ok: false, error: '입력칸을 일부 찾지 못했습니다 (망고 화면 구조 변경 가능성).' };
@@ -131,34 +137,35 @@
     // 문서 전체를 다시 훑지 않고, 후보를 고를 때 이미 모아둔 목록을 재사용한다.
     // 선택수정이 읽는 값은 uid_check[] 뿐이라 이 목록이 곧 전부다.
     for (let i = 0; i < boxes.length; i++) {
-      if (boxes[i].checked) {
-        boxes[i].checked = false;
-        fireChange(boxes[i]);
-      }
+      if (boxes[i].checked) boxes[i].checked = false;
     }
     // 헤더의 전체선택 체크박스도 풀어준다 (제출값은 아니지만 화면이 어긋나 보인다).
     // 표는 후보를 고를 때 이미 찾아 둔 것을 그대로 쓴다 (closest 를 다시 타지 않는다).
     const all = table && table.rows[0] && table.rows[0].querySelector('input[type=checkbox]');
-    if (all && all.checked) {
-      all.checked = false;
-      fireChange(all);
-    }
+    if (all && all.checked) all.checked = false;
     row.cb.checked = true;
-    fireChange(row.cb);
 
     return { ok: true, uid };
   }
 
-  function save() {
+  // [선택수정] 버튼. onclick 속성으로 한 번에 집는다.
+  //
+  // 예전에는 a/button/input 1,543개를 돌며 innerText 를 읽었다 — 0.49ms 인 데다
+  // innerText 는 요소마다 레이아웃을 강제한다. 속성 선택자는 0.02ms 다.
+  // 망고가 핸들러 이름을 바꾸면 예전 방식(라벨 텍스트, 단 textContent)으로 떨어진다.
+  function saveButton() {
+    const el = document.querySelector('[onclick*="really_all_select_modify"]');
+    if (el) return el;
     const nodes = document.querySelectorAll('a, button, input[type=button]');
-    let link = null;
     for (let i = 0; i < nodes.length; i++) {
-      const label = nodes[i].innerText || nodes[i].value || '';
-      if (label.trim() === '선택수정') {
-        link = nodes[i];
-        break;
-      }
+      const label = nodes[i].textContent || nodes[i].value || '';
+      if (label.trim() === '선택수정') return nodes[i];
     }
+    return null;
+  }
+
+  function save() {
+    const link = saveButton();
     if (!link) {
       alert('[선택수정] 버튼을 찾지 못했습니다. 직접 눌러 저장해주세요.');
       return false;
@@ -185,7 +192,13 @@ tr.lm-cand{outline:3px solid #f59f00;outline-offset:-3px}
     document.head.appendChild(s);
   }
 
+  // 후보 UI 를 띄운 적이 없으면 훑을 것도 없다. run() 이 시작할 때마다 무조건 부르는
+  // 자리라, 압도적으로 흔한 '한 방에 매칭' 경로에서 문서 조회 3번을 통째로 없앤다.
+  let picking = false;
+
   function clearPicker() {
+    if (!picking) return;
+    picking = false;
     document.querySelectorAll('.lm-pick').forEach((e) => e.remove());
     document.querySelectorAll('tr.lm-cand').forEach((e) => e.classList.remove('lm-cand'));
     const b = $('lm-banner');
@@ -195,6 +208,7 @@ tr.lm-cand{outline:3px solid #f59f00;outline-offset:-3px}
   function showPicker(rows, p, boxes, table) {
     ensureStyle();
     clearPicker();
+    picking = true;
     const banner = document.createElement('div');
     banner.id = 'lm-banner';
     banner.className = 'lm-banner';
