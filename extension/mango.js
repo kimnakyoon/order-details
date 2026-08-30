@@ -1,6 +1,6 @@
 // The.Mango 주문관리 목록에 값 반영 + 주문상태 배송완료 + 저장
 //
-// 이 파일은 manifest 의 content_scripts 가 아니라, 롯데온에서 버튼을 눌렀을 때
+// 이 파일은 manifest 의 content_scripts 가 아니라, 마켓 주문상세에서 버튼을 눌렀을 때
 // background 가 chrome.scripting.executeScript 로 주입한다.
 // 따라서 망고 페이지를 그냥 열기만 할 때는 이 코드가 전혀 실행되지 않는다.
 (() => {
@@ -16,6 +16,11 @@
   function fire(el) {
     ['input', 'change', 'keyup'].forEach((t) => el.dispatchEvent(new Event(t, { bubbles: true })));
   }
+  // 체크박스에는 change 하나면 된다. input/keyup 은 의미도 없고, 망고 쪽 핸들러를
+  // 괜히 세 번 깨운다. click 은 절대 쓰지 않는다 — 체크 상태가 다시 뒤집힌다.
+  function fireChange(el) {
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
   function setValue(el, v) {
     if (!el) return false;
     el.value = v;
@@ -23,19 +28,32 @@
     return true;
   }
 
-  // 후보 판정에는 innerText 대신 textContent 를 쓴다.
-  // innerText 는 행마다 레이아웃을 강제해서 행이 많은 목록에서 눈에 띄게 느려진다.
-  function rowText(tr) {
-    return tr.textContent;
+  // 컬럼 위치는 헤더에서 한 번만 읽는다. 못 찾으면 -1 로 두고 행 전체 텍스트로 폴백한다.
+  // 이렇게 하면 망고가 컬럼 순서를 바꿔도 따라가고, 못 따라가도 동작은 한다.
+  function columnIndex(table) {
+    const col = { receiver: -1, price: -1, info: -1 };
+    const head = table && table.rows[0];
+    if (!head) return col;
+    for (let i = 0; i < head.cells.length; i++) {
+      const s = head.cells[i].textContent.replace(/\s/g, '');
+      if (col.receiver < 0 && s.indexOf('수령인') === 0) col.receiver = i;
+      else if (col.price < 0 && s.indexOf('결제금액') === 0) col.price = i;
+      else if (col.info < 0 && s.indexOf('주문번호') === 0) col.info = i;
+    }
+    return col;
   }
 
-  function score(tr, uid, p, text) {
-    if (!text.includes(p.receiver)) return -1; // 수령인 불일치 = 후보 아님
+  // 필요한 칸만 읽는다. 행 전체(textContent)를 읽으면 트래킹번호 칸에 들어있는
+  // <style> 블록과 택배사 <select> 옵션까지 문자열로 만들게 되는데, 그게 행 텍스트의
+  // 절반이면서 매칭에는 전혀 쓰이지 않는다.
+  const cellText = (tr, i) => (i >= 0 && tr.cells[i] ? tr.cells[i].textContent : tr.textContent);
+
+  function score(tr, uid, p, col) {
     const numEl = $('uid_usd_order_num_' + uid);
     if (numEl && numEl.value.trim() === p.orderNo) return 100; // 같은 건 재전송
     let s = 2;
-    if (p.total && text.includes(p.total)) s += 4; // 결제금액 일치
-    if (text.indexOf('LOTTEON') !== -1) s += 2;    // 롯데온 발주건
+    if (p.total && cellText(tr, col.price).includes(p.total)) s += 4; // 결제금액 일치
+    if (p.marketTag && cellText(tr, col.info).indexOf(p.marketTag) !== -1) s += 2; // 같은 발주처
     if (numEl && !numEl.value.trim()) s += 1;      // 아직 안 채워진 건 우선
     const st = $('uid_state_' + uid);
     if (st && st.value === STATE_PAID) s += 1;
@@ -44,17 +62,22 @@
   }
 
   function candidates(p) {
-    const out = [];
     const boxes = document.querySelectorAll('input.chklist[name="uid_check[]"]');
+    const out = [];
+    if (!boxes.length) return { rows: out, boxes };
+    const col = columnIndex(boxes[0].closest('table'));
     for (let i = 0; i < boxes.length; i++) {
       const cb = boxes[i];
       const tr = cb.closest('tr');
       if (!tr) continue;
-      const s = score(tr, cb.value, p, rowText(tr));
+      // 1단계 — 수령인 칸만 읽어 거른다. 행 전체의 1/150 이라 대부분 여기서 끝난다.
+      if (!cellText(tr, col.receiver).includes(p.receiver)) continue;
+      // 2단계 — 살아남은 소수의 행만 나머지 칸을 읽는다.
+      const s = score(tr, cb.value, p, col);
       if (s > 0) out.push({ uid: cb.value, cb, tr, s });
     }
     out.sort((a, b) => b.s - a.s);
-    return out;
+    return { rows: out, boxes };
   }
 
   // 간단메모 2번째 칸: 저장 필드(uid_usd_memo_<uid>)와 같은 셀 안에서 위에서 두 번째로 보이는 입력칸.
@@ -68,7 +91,7 @@
     return slots[index] || null;
   }
 
-  function apply(row, p) {
+  function apply(row, p, boxes) {
     const uid = row.uid;
     const st = $('uid_state_' + uid);
     if (st && st.value === STATE_CANCELLED) {
@@ -86,13 +109,24 @@
     }
     if (st) setValue(st, STATE_DONE);
 
-    // 저장 시 다른 행이 함께 수정되지 않도록 체크된 것 전부 해제 후 대상 행만 체크
-    document.querySelectorAll('input[type=checkbox]:checked').forEach((c) => {
-      c.checked = false;
-      fire(c);
-    });
+    // 저장 시 다른 행이 함께 수정되지 않도록 체크된 것을 해제하고 대상 행만 체크한다.
+    // 문서 전체를 다시 훑지 않고, 후보를 고를 때 이미 모아둔 목록을 재사용한다.
+    // 선택수정이 읽는 값은 uid_check[] 뿐이라 이 목록이 곧 전부다.
+    for (let i = 0; i < boxes.length; i++) {
+      if (boxes[i].checked) {
+        boxes[i].checked = false;
+        fireChange(boxes[i]);
+      }
+    }
+    // 헤더의 전체선택 체크박스도 풀어준다 (제출값은 아니지만 화면이 어긋나 보인다)
+    const table = row.tr.closest('table');
+    const all = table && table.rows[0] && table.rows[0].querySelector('input[type=checkbox]');
+    if (all && all.checked) {
+      all.checked = false;
+      fireChange(all);
+    }
     row.cb.checked = true;
-    fire(row.cb);
+    fireChange(row.cb);
 
     return { ok: true, uid };
   }
@@ -140,7 +174,7 @@ tr.lm-cand{outline:3px solid #f59f00;outline-offset:-3px}
     if (b) b.remove();
   }
 
-  function showPicker(rows, p) {
+  function showPicker(rows, p, boxes) {
     ensureStyle();
     clearPicker();
     const banner = document.createElement('div');
@@ -157,7 +191,7 @@ tr.lm-cand{outline:3px solid #f59f00;outline-offset:-3px}
       btn.textContent = '여기에 적용';
       btn.addEventListener('click', () => {
         clearPicker();
-        const res = apply(row, p);
+        const res = apply(row, p, boxes);
         if (!res.ok) alert(res.error);
         else save();
       });
@@ -168,20 +202,20 @@ tr.lm-cand{outline:3px solid #f59f00;outline-offset:-3px}
 
   function run(p) {
     clearPicker();
-    const cands = candidates(p);
+    const { rows: cands, boxes } = candidates(p);
     if (!cands.length) {
       return { ok: false, error: `"${p.receiver}" 주문건을 이 목록에서 찾지 못했습니다.` };
     }
     const tied = cands.filter((c) => c.s === cands[0].s);
     if (tied.length > 1) {
-      showPicker(tied, p);
+      showPicker(tied, p, boxes);
       return {
         ok: false,
         needsPick: true,
         error: `"${p.receiver}" 후보가 ${tied.length}건입니다. 망고 탭에서 직접 선택해주세요.`,
       };
     }
-    const res = apply(cands[0], p);
+    const res = apply(cands[0], p, boxes);
     // 저장은 결과를 반환한 뒤에 — confirm 승인 직후 페이지가 이동해도 결과가 유실되지 않도록
     if (res.ok) setTimeout(save, 0);
     return res;

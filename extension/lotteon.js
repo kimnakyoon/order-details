@@ -1,4 +1,4 @@
-// 롯데온 주문상세 페이지 -> 4개 값 추출 후 The.Mango 로 전송
+// 롯데온 주문상세 페이지 -> 망고 전송용 값 추출
 (() => {
   'use strict';
 
@@ -47,73 +47,12 @@
       payDate, // 2026.08.29
       receiver,
       total, // "42,720"
+      marketTag: 'LOTTEON', // 망고 목록 행에 표시되는 발주처 태그
     };
   }
 
-  function toast(msg, kind) {
-    let t = document.getElementById('lm-toast');
-    if (!t) {
-      t = document.createElement('div');
-      t.id = 'lm-toast';
-      document.body.appendChild(t);
-    }
-    t.className = 'lm-toast lm-' + (kind || 'info');
-    t.textContent = msg;
-    t.style.display = 'block';
-    clearTimeout(t._timer);
-    t._timer = setTimeout(() => (t.style.display = 'none'), 6000);
-  }
-
-  const btn = document.createElement('button');
-  btn.id = 'lm-send-btn';
-  btn.type = 'button';
-  btn.textContent = '🥭 망고로 전송';
-  btn.addEventListener('click', async () => {
-    const data = extract();
-    if (data.error) {
-      toast('추출 실패: ' + data.error, 'err');
-      return;
-    }
-    btn.disabled = true;
-    btn.textContent = '전송 중…';
-    try {
-      const res = await chrome.runtime.sendMessage({ type: 'SEND_TO_MANGO', payload: data });
-      if (res && res.ok) {
-        toast(`${data.receiver}님 주문건에 반영했습니다. 망고 탭에서 확인하세요.`, 'ok');
-      } else {
-        toast('실패: ' + ((res && res.error) || '알 수 없는 오류'), 'err');
-      }
-    } catch (e) {
-      toast('실패: ' + e.message, 'err');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '🥭 망고로 전송';
-    }
+  window.__LM_SITE__.mount({
+    extract,
+    anchor: () => document.querySelector('.topInformation .orderNumber'),
   });
-  // 주문번호 바로 옆에 버튼을 붙인다. 아직 안 그려졌으면 나타날 때까지 기다린다.
-  function mount() {
-    if (btn.isConnected) return true;
-    const anchor = document.querySelector('.topInformation .orderNumber');
-    if (anchor && anchor.parentElement) {
-      btn.className = 'lm-btn-inline';
-      anchor.insertAdjacentElement('afterend', btn);
-      return true;
-    }
-    return false;
-  }
-
-  if (!mount()) {
-    const obs = new MutationObserver(() => {
-      if (mount()) obs.disconnect();
-    });
-    obs.observe(document.documentElement, { childList: true, subtree: true });
-    // 끝내 못 찾으면 우측 하단 고정 버튼으로 폴백
-    setTimeout(() => {
-      if (!btn.isConnected) {
-        obs.disconnect();
-        btn.className = 'lm-btn';
-        document.body.appendChild(btn);
-      }
-    }, 10000);
-  }
 })();

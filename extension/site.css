@@ -38,10 +38,12 @@
   right: 24px;
   bottom: 78px;
   z-index: 2147483000;
-  max-width: 340px;
+  max-width: 560px;
   padding: 10px 14px;
+  cursor: pointer;
   font: 400 13px/1.5 "Malgun Gothic", sans-serif;
   color: #fff;
+  white-space: pre-line; /* 실패 시 '보낸 값' 을 줄 바꿔 보여준다 */
   border-radius: 8px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, .28);
 }
