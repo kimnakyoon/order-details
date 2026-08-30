@@ -11,6 +11,10 @@
   const STATE_PAID = '2';      // 결제완료
   const STATE_CANCELLED = '9'; // 반품/교환/취소완료
 
+  // 간단메모 앞칸 자리표시. 서버가 각 줄을 trim 하고 빈 줄을 버려서, 진짜 빈 칸으로는
+  // 자리가 지켜지지 않는다 (writeMemo 주석 참고). NBSP 는 trim 을 통과하고 화면에선 빈 칸이다.
+  const MEMO_PAD = '\u00a0';
+
   const $ = (id) => document.getElementById(id);
 
   // 값만 넣고 이벤트는 쏘지 않는다.
@@ -111,6 +115,17 @@
   // 그래서 보이는 칸에 넣은 뒤 숨은 칸도 같은 규칙으로 직접 다시 만든다: 빈 칸을 빼고 '\n' 로
   // 잇는다 (망고 목록 50행 전부에서 이 규칙이 맞는 것을 확인했다. 2026-08-30).
   //
+  // 앞칸이 비어 있으면 URL 이 한 칸 앞으로 밀린다 — 그래서 NBSP 로 자리를 지킨다.
+  //
+  // URL 은 2번 칸에 넣기로 했는데(README 표), 1번 칸이 비어 있으면 숨은 칸이 'URL' 한 줄이
+  // 되고 저장 후 다시 그려질 때 첫 줄이 곧 1번 칸이라 URL 이 1번에 붙는다. 빈 줄로 자리를
+  // 지워 보려 했지만 **서버가 각 줄을 trim 하고 빈 줄을 버린다** — '\nURL' 도, 공백 한 칸을
+  // 넣은 ' \nURL' 도 저장하면 그냥 'URL' 이 된다 (2026-08-31 실측, 저장 후 재조회로 확인).
+  //
+  // 그래서 앞칸을 NBSP(U+00A0) 로 채운다. 서버 trim 을 통과해 그대로 살아남는 것을 확인했고
+  // (U+3000·U+200B 도 통과했다), 화면에서는 그냥 빈 칸으로 보인다. 앞칸을 채우고 나면
+  // 잇는 규칙은 사이트 원래 규칙 그대로여도 결과가 같다.
+  //
   // 칸을 고를 때 **레이아웃을 읽지 않는다.**
   //
   // 예전에는 `offsetParent` 로 보이는 칸만 남기고 `getBoundingClientRect().y` 로 정렬했는데,
@@ -128,6 +143,11 @@
     }
     if (!slots[index]) return false;
     slots[index].value = value;
+    // 앞칸이 비어 있으면 NBSP 로 자리를 지킨다 (윗주석 참고). 이게 없으면 서버가
+    // 빈 줄을 버려서 URL 이 1번 칸으로 밀려 올라간다.
+    for (let i = 0; i < index; i++) {
+      if (slots[i].value === '') slots[i].value = MEMO_PAD;
+    }
     let joined = '';
     for (let i = 0; i < slots.length; i++) {
       if (slots[i].value === '') continue;
