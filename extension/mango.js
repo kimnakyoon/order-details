@@ -48,12 +48,28 @@
   // 절반이면서 매칭에는 전혀 쓰이지 않는다.
   const cellText = (tr, i) => (i >= 0 && tr.cells[i] ? tr.cells[i].textContent : tr.textContent);
 
-  function score(tr, uid, p, col) {
+  // 발주처 태그는 여러 표기를 받는다 (무신사는 '무신사'/'MUSINSA' 둘 다 쓰일 수 있다).
+  // 행마다 만들지 않고 스캔 전에 한 번 정규화한다.
+  function tagList(p) {
+    if (Array.isArray(p.marketTag)) return p.marketTag;
+    return p.marketTag ? [p.marketTag] : [];
+  }
+
+  function score(tr, uid, p, col, tags) {
     const numEl = $('uid_usd_order_num_' + uid);
     if (numEl && numEl.value.trim() === p.orderNo) return 100; // 같은 건 재전송
     let s = 2;
     if (p.total && cellText(tr, col.price).includes(p.total)) s += 4; // 결제금액 일치
-    if (p.marketTag && cellText(tr, col.info).indexOf(p.marketTag) !== -1) s += 2; // 같은 발주처
+    // some(화살표함수) 는 행마다 클로저를 만든다. 여긴 README 가 매달리는 그 경로라 손으로 돈다.
+    if (tags.length) {
+      const info = cellText(tr, col.info);
+      for (let i = 0; i < tags.length; i++) {
+        if (info.indexOf(tags[i]) !== -1) {
+          s += 2; // 같은 발주처
+          break;
+        }
+      }
+    }
     if (numEl && !numEl.value.trim()) s += 1;      // 아직 안 채워진 건 우선
     const st = $('uid_state_' + uid);
     if (st && st.value === STATE_PAID) s += 1;
@@ -65,7 +81,9 @@
     const boxes = document.querySelectorAll('input.chklist[name="uid_check[]"]');
     const out = [];
     if (!boxes.length) return { rows: out, boxes };
-    const col = columnIndex(boxes[0].closest('table'));
+    const table = boxes[0].closest('table');
+    const col = columnIndex(table);
+    const tags = tagList(p);
     for (let i = 0; i < boxes.length; i++) {
       const cb = boxes[i];
       const tr = cb.closest('tr');
@@ -73,11 +91,11 @@
       // 1단계 — 수령인 칸만 읽어 거른다. 행 전체의 1/150 이라 대부분 여기서 끝난다.
       if (!cellText(tr, col.receiver).includes(p.receiver)) continue;
       // 2단계 — 살아남은 소수의 행만 나머지 칸을 읽는다.
-      const s = score(tr, cb.value, p, col);
+      const s = score(tr, cb.value, p, col, tags);
       if (s > 0) out.push({ uid: cb.value, cb, tr, s });
     }
     out.sort((a, b) => b.s - a.s);
-    return { rows: out, boxes };
+    return { rows: out, boxes, table };
   }
 
   // 간단메모 2번째 칸: 저장 필드(uid_usd_memo_<uid>)와 같은 셀 안에서 위에서 두 번째로 보이는 입력칸.
@@ -91,7 +109,7 @@
     return slots[index] || null;
   }
 
-  function apply(row, p, boxes) {
+  function apply(row, p, boxes, table) {
     const uid = row.uid;
     const st = $('uid_state_' + uid);
     if (st && st.value === STATE_CANCELLED) {
@@ -118,8 +136,8 @@
         fireChange(boxes[i]);
       }
     }
-    // 헤더의 전체선택 체크박스도 풀어준다 (제출값은 아니지만 화면이 어긋나 보인다)
-    const table = row.tr.closest('table');
+    // 헤더의 전체선택 체크박스도 풀어준다 (제출값은 아니지만 화면이 어긋나 보인다).
+    // 표는 후보를 고를 때 이미 찾아 둔 것을 그대로 쓴다 (closest 를 다시 타지 않는다).
     const all = table && table.rows[0] && table.rows[0].querySelector('input[type=checkbox]');
     if (all && all.checked) {
       all.checked = false;
@@ -174,7 +192,7 @@ tr.lm-cand{outline:3px solid #f59f00;outline-offset:-3px}
     if (b) b.remove();
   }
 
-  function showPicker(rows, p, boxes) {
+  function showPicker(rows, p, boxes, table) {
     ensureStyle();
     clearPicker();
     const banner = document.createElement('div');
@@ -191,7 +209,7 @@ tr.lm-cand{outline:3px solid #f59f00;outline-offset:-3px}
       btn.textContent = '여기에 적용';
       btn.addEventListener('click', () => {
         clearPicker();
-        const res = apply(row, p, boxes);
+        const res = apply(row, p, boxes, table);
         if (!res.ok) alert(res.error);
         else save();
       });
@@ -202,20 +220,20 @@ tr.lm-cand{outline:3px solid #f59f00;outline-offset:-3px}
 
   function run(p) {
     clearPicker();
-    const { rows: cands, boxes } = candidates(p);
+    const { rows: cands, boxes, table } = candidates(p);
     if (!cands.length) {
       return { ok: false, error: `"${p.receiver}" 주문건을 이 목록에서 찾지 못했습니다.` };
     }
     const tied = cands.filter((c) => c.s === cands[0].s);
     if (tied.length > 1) {
-      showPicker(tied, p, boxes);
+      showPicker(tied, p, boxes, table);
       return {
         ok: false,
         needsPick: true,
         error: `"${p.receiver}" 후보가 ${tied.length}건입니다. 망고 탭에서 직접 선택해주세요.`,
       };
     }
-    const res = apply(cands[0], p, boxes);
+    const res = apply(cands[0], p, boxes, table);
     // 저장은 결과를 반환한 뒤에 — confirm 승인 직후 페이지가 이동해도 결과가 유실되지 않도록
     if (res.ok) setTimeout(save, 0);
     return res;
