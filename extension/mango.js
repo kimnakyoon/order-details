@@ -100,16 +100,32 @@
     return { rows: out, boxes, table };
   }
 
-  // 간단메모 2번째 칸: 저장 필드(uid_usd_memo_<uid>)와 같은 셀 안에서 위에서 두 번째로 보이는 입력칸.
+  // 간단메모 N번째 칸에 쓴다.
+  //
+  // 이 칸만 다른 칸들과 구조가 다르다. 실제로 저장되는 값은 숨어 있는
+  // `uid_usd_memo_<uid>`(name="uid_usd_memo[]") **하나**뿐이고, 화면에 보이는 입력칸 3개는
+  // 그 값을 줄 단위로 쪼개 놓은 편집 UI 다. 사람이 타이핑하면 사이트 쪽 핸들러가 세 칸을 도로
+  // 합쳐 숨은 칸에 넣는데, 우리는 이벤트를 쏘지 않으므로(setValue 주석 참고) 그 합치기가
+  // 돌지 않는다 — 보이는 칸에만 쓰면 화면에는 URL 이 보이지만 **저장하면 사라진다.**
+  //
+  // 그래서 보이는 칸에 넣은 뒤 숨은 칸도 같은 규칙으로 직접 다시 만든다: 빈 칸을 빼고 '\n' 로
+  // 잇는다 (망고 목록 50행 전부에서 이 규칙이 맞는 것을 확인했다. 2026-08-30).
+  //
   // 매칭된 1개 행에서만 호출한다. 확장이 레이아웃을 읽는 곳은 여기 하나뿐이라,
-  // apply() 가 **값을 쓰기 전에** 불러 강제 리플로우를 피한다 (0.053ms -> 0.007ms).
-  function memoSlot(uid, index) {
+  // apply() 가 **다른 값을 쓰기 전에** 불러 강제 리플로우를 피한다 (0.053ms -> 0.007ms).
+  function writeMemo(uid, index, value) {
     const hidden = $('uid_usd_memo_' + uid);
-    if (!hidden || !hidden.parentElement) return null;
+    if (!hidden || !hidden.parentElement) return false;
     const slots = [...hidden.parentElement.querySelectorAll('input[type=text], textarea')]
       .filter((e) => e.offsetParent !== null)
       .sort((a, b) => a.getBoundingClientRect().y - b.getBoundingClientRect().y);
-    return slots[index] || null;
+    if (!slots[index]) return false;
+    slots[index].value = value;
+    hidden.value = slots
+      .map((e) => e.value)
+      .filter((v) => v !== '')
+      .join('\n');
+    return true;
   }
 
   function apply(row, p, boxes, table) {
@@ -120,13 +136,13 @@
     }
 
     // 값을 쓰기 전에 읽는다 — 쓰고 나서 읽으면 강제 리플로우가 걸린다.
-    const memo = memoSlot(uid, 1);
+    const memoWritten = writeMemo(uid, 1, p.url);
 
     const written = [
       setValue($('uid_usd_order_num_' + uid), p.orderNo),
       setValue($('uid_usd_order_price_' + uid), p.price),
       setValue($('uid_usd_delivery_num_' + uid), p.payDate),
-      setValue(memo, p.url),
+      memoWritten,
     ];
     if (written.some((w) => !w)) {
       return { ok: false, error: '입력칸을 일부 찾지 못했습니다 (망고 화면 구조 변경 가능성).' };

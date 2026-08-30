@@ -1,8 +1,13 @@
 // 패션플러스 주문상세 페이지 -> 망고 전송용 값 추출
 //
-// 롯데온과 같은 구조의 정적 페이지다. 다만 값이 전부 <th>라벨 / <td>값 표에 들어 있어서,
-// 본문 텍스트를 정규식으로 훑는 대신 표를 라벨로 읽는다 — 라벨 문구가 겹쳐도(주문자 정보와
-// 배송지 정보에 '주문자명'이 둘 다 있다) 어느 표인지로 갈린다.
+// 값이 전부 <th>라벨 / <td>값 표에 들어 있어서, 본문 텍스트를 정규식으로 훑는 대신 표를
+// 라벨로 읽는다 — 라벨 문구가 겹쳐도(주문자 정보와 배송지 정보에 '주문자명'이 둘 다 있다)
+// 어느 표인지로 갈린다.
+//
+// SPA 는 아니지만 mount 는 watch 모드로 붙는다. Vue(2.6) 가 주문상세 영역(#my_order_detail)에
+// 마운트하면서 그 안의 DOM 을 템플릿으로 컴파일해 새로 그리는데, document_idle 에 먼저 붙은
+// 우리 버튼도 거기 섞여 리스너 없는 껍데기로 다시 태어나기 때문이다. 옵저버를 살려 두면
+// 다시 그려진 직후에 진짜 버튼으로 갈아 끼운다 (껍데기 제거는 common.js 의 place() 몫).
 //
 // 결제금액·결제일시는 '결제수단 정보' 표에서 가져온다.
 //   결제금액   44,700원   -> 구입금액(신고금액)
@@ -101,18 +106,30 @@
   }
 
   // 제목 줄의 주문번호('141324230 (신청일: 2026-08-29)') 옆에 버튼을 붙인다.
+  //
+  // watch 모드라 매 틱 불린다. 찾은 요소를 캐시해 문서를 다시 훑지 않게 한다
+  // (무신사·네이버페이와 같은 이유). Vue 가 다시 그리면 캐시한 요소가 문서에서 떨어져
+  // 나가므로 isConnected 로 걸러지고, 그때만 TreeWalker 를 다시 돈다.
+  let cached = null;
+
   function anchor() {
     const no = orderNo();
-    if (!no) return null;
+    if (!no) return null; // 주문상세가 아닌 화면 -> 버튼을 뗀다
+    if (cached && cached.isConnected && cached.textContent.indexOf(no) !== -1) return cached;
+
+    cached = null;
     const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let n = walk.nextNode(); n; n = walk.nextNode()) {
       if (n.nodeValue.length > 60) continue;
       if (n.nodeValue.indexOf(no) === -1) continue;
       const el = n.parentElement;
-      if (el && el.offsetParent !== null) return el;
+      if (el && el.offsetParent !== null) {
+        cached = el;
+        break;
+      }
     }
-    return null;
+    return cached;
   }
 
-  window.__LM_SITE__.mount({ extract, anchor });
+  window.__LM_SITE__.mount({ extract, anchor, watch: true });
 })();

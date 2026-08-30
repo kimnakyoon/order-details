@@ -71,6 +71,16 @@
         return false;
       }
       if (btn.previousElementSibling === el) return true;
+      // 우리 버튼과 똑같이 생겼지만 우리 것이 아닌 게 남아 있을 수 있다.
+      //
+      // 패션플러스는 Vue 가 주문상세 영역에 마운트하면서 **그 안의 DOM 을 템플릿으로 컴파일해
+      // 새로 그린다.** 우리가 먼저 붙여 둔 버튼도 그 템플릿에 섞여 들어가, 마크업은 똑같지만
+      // 리스너가 없는 껍데기로 다시 태어난다 (눌러도 아무 일도 일어나지 않는다).
+      // 진짜 버튼을 다시 붙이기 전에 그 껍데기를 걷어낸다.
+      const stale = document.querySelectorAll('#lm-send-btn');
+      for (let i = 0; i < stale.length; i++) {
+        if (stale[i] !== btn) stale[i].remove();
+      }
       btn.className = 'lm-btn-inline';
       el.insertAdjacentElement('afterend', btn);
       return true;

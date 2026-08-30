@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "마켓 주문상세 → The.Mango 전송",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "롯데온·SSG·무신사·네이버페이·패션플러스 주문상세 정보를 클릭 한 번으로 The.Mango 주문건에 옮기고 주문상태를 배송완료로 변경합니다.",
   "permissions": ["tabs", "scripting", "notifications", "storage"],
   "host_permissions": [
