@@ -83,25 +83,49 @@
     return s;
   }
 
+  // 행의 체크박스. 첫 칸 안에서만 찾으므로 문서를 훑지 않는다.
+  const rowBox = (tr) => {
+    const c = tr.cells[0];
+    return c ? c.querySelector('input.chklist') : null;
+  };
+
+  // 행 목록은 **표에서** 얻는다 (`table.rows`). 문서 전체를 훑지 않는다.
+  //
+  // 예전에는 `querySelectorAll('input.chklist[name="uid_check[]"]')` 로 체크박스 50개를 먼저
+  // 모으고 각각 `closest('tr')` 로 행을 거슬러 올라갔다. 그 두 단계가 스캔 시간의 **절반**이었다
+  // (요소 16,697개 목록에서 문서 조회 0.035ms + closest 50번 0.012ms).
+  //
+  // 그런데 후보 판정의 1단계는 **수령인 칸 하나**만 본다. 체크박스는 그 관문을 통과한 소수의
+  // 행에만 필요하다. 그래서 `table.rows`(51행)를 돌며 수령인 칸부터 읽고, 살아남은 행에서만
+  // 첫 칸의 체크박스를 집는다. 표를 찾는 데 드는 문서 조회는 **하나(첫 체크박스)** 뿐이다.
+  //
+  // `table.rows` 는 라이브 컬렉션이라 DOM 이 바뀌면 캐시가 식지만, 다시 만드는 비용이 문서가
+  // 아니라 **그 표의 행 수**에 묶인다 — 실측 0.031ms(식음) / 0.029ms(따뜻함)로 차이가 없다.
+  // 문서 전체를 훑는 라이브 컬렉션(`getElementsByName`)이 식었을 때 0.38ms 로 튀는 것과 다르다.
+  // 그래서 롯데아이몰에서 라이브 컬렉션을 피한 이유(최악이 튄다)가 여기서는 걸리지 않는다.
+  //
+  // 헤더 행(0번)도 그냥 같이 돈다. 수령인 칸이 `수령인` 이라 이름과 겹칠 일이 없고, 겹치더라도
+  // 첫 칸에 체크박스가 없어 걸러진다 — 행을 체크박스로 찾던 예전과 결과가 같다.
   function candidates(p) {
-    const boxes = document.querySelectorAll('input.chklist[name="uid_check[]"]');
     const out = [];
-    if (!boxes.length) return { rows: out, boxes };
-    const table = boxes[0].closest('table');
+    const first = document.querySelector('input.chklist[name="uid_check[]"]');
+    if (!first) return { rows: out, table: null };
+    const table = first.closest('table');
     const col = columnIndex(table);
     const tags = tagList(p);
-    for (let i = 0; i < boxes.length; i++) {
-      const cb = boxes[i];
-      const tr = cb.closest('tr');
-      if (!tr) continue;
+    const trs = table.rows;
+    for (let i = 0; i < trs.length; i++) {
+      const tr = trs[i];
       // 1단계 — 수령인 칸만 읽어 거른다. 행 전체의 1/150 이라 대부분 여기서 끝난다.
       if (!cellText(tr, col.receiver).includes(p.receiver)) continue;
-      // 2단계 — 살아남은 소수의 행만 나머지 칸을 읽는다.
+      // 2단계 — 살아남은 소수의 행만 체크박스와 나머지 칸을 읽는다.
+      const cb = rowBox(tr);
+      if (!cb) continue;
       const s = score(tr, cb.value, p, col, tags);
       if (s > 0) out.push({ uid: cb.value, cb, tr, s });
     }
     out.sort((a, b) => b.s - a.s);
-    return { rows: out, boxes, table };
+    return { rows: out, table };
   }
 
   // 간단메모 N번째 칸에 쓴다.
@@ -157,7 +181,7 @@
     return true;
   }
 
-  function apply(row, p, boxes, table) {
+  function apply(row, p, table) {
     const uid = row.uid;
     const st = $('uid_state_' + uid);
     if (st && st.value === STATE_CANCELLED) {
@@ -178,13 +202,18 @@
     if (st) setValue(st, STATE_DONE);
 
     // 저장 시 다른 행이 함께 수정되지 않도록 체크된 것을 해제하고 대상 행만 체크한다.
-    // 문서 전체를 다시 훑지 않고, 후보를 고를 때 이미 모아둔 목록을 재사용한다.
-    // 선택수정이 읽는 값은 uid_check[] 뿐이라 이 목록이 곧 전부다.
-    for (let i = 0; i < boxes.length; i++) {
-      if (boxes[i].checked) boxes[i].checked = false;
+    // 문서를 다시 훑지 않고 후보를 고를 때 찾아 둔 표의 행만 돈다. 선택수정이 읽는 값은
+    // uid_check[] 뿐이라 이 표의 체크박스가 곧 전부다.
+    //
+    // 스캔에서 체크박스를 모으지 않게 됐으니(candidates 주석) 여기서 행마다 집는다 — 0.013ms 다.
+    // 문서 조회로 모으면 0.026~0.028ms 라 이쪽이 싸고, 매칭에 실패한 전송에서는 아예 돌지 않는다.
+    const trs = table ? table.rows : [];
+    for (let i = 0; i < trs.length; i++) {
+      const cb = rowBox(trs[i]);
+      if (cb && cb.checked) cb.checked = false;
     }
     // 헤더의 전체선택 체크박스도 풀어준다 (제출값은 아니지만 화면이 어긋나 보인다).
-    // 표는 후보를 고를 때 이미 찾아 둔 것을 그대로 쓴다 (closest 를 다시 타지 않는다).
+    // 이건 `.chklist` 가 아니라 별도 클래스라 위 루프에 걸리지 않는다.
     const all = table && table.rows[0] && table.rows[0].querySelector('input[type=checkbox]');
     if (all && all.checked) all.checked = false;
     row.cb.checked = true;
@@ -195,15 +224,26 @@
   // [선택수정] 버튼. onclick 속성으로 한 번에 집는다.
   //
   // 예전에는 a/button/input 1,543개를 돌며 innerText 를 읽었다 — 0.49ms 인 데다
-  // innerText 는 요소마다 레이아웃을 강제한다. 속성 선택자는 0.02ms 다.
+  // innerText 는 요소마다 레이아웃을 강제한다. 속성 선택자는 0.016ms 다.
   // 망고가 핸들러 이름을 바꾸면 예전 방식(라벨 텍스트, 단 textContent)으로 떨어진다.
+  //
+  // 그 0.016ms 도 **한 문서에서 한 번만** 낸다. `[onclick*=...]` 은 인덱스가 없어 문서를 통째로
+  // 훑는 선택자인데, 버튼은 목록을 다시 그리지 않는 한 그대로 있다. 목록을 새로 검색하면 문서가
+  // 통째로 바뀌므로(전체 페이지 이동) 이 캐시도 함께 사라진다. 그 사이에 사라졌다면
+  // `isConnected` 가 false 라 다시 찾는다. 주문건을 연달아 보낼 때 매번 내던 비용이 없어진다.
+  let saveEl = null;
+
   function saveButton() {
-    const el = document.querySelector('[onclick*="really_all_select_modify"]');
-    if (el) return el;
+    if (saveEl && saveEl.isConnected) return saveEl;
+    saveEl = document.querySelector('[onclick*="really_all_select_modify"]');
+    if (saveEl) return saveEl;
     const nodes = document.querySelectorAll('a, button, input[type=button]');
     for (let i = 0; i < nodes.length; i++) {
       const label = nodes[i].textContent || nodes[i].value || '';
-      if (label.trim() === '선택수정') return nodes[i];
+      if (label.trim() === '선택수정') {
+        saveEl = nodes[i];
+        return saveEl;
+      }
     }
     return null;
   }
@@ -249,7 +289,7 @@ tr.lm-cand{outline:3px solid #f59f00;outline-offset:-3px}
     if (b) b.remove();
   }
 
-  function showPicker(rows, p, boxes, table) {
+  function showPicker(rows, p, table) {
     ensureStyle();
     clearPicker();
     picking = true;
@@ -267,7 +307,7 @@ tr.lm-cand{outline:3px solid #f59f00;outline-offset:-3px}
       btn.textContent = '여기에 적용';
       btn.addEventListener('click', () => {
         clearPicker();
-        const res = apply(row, p, boxes, table);
+        const res = apply(row, p, table);
         if (!res.ok) alert(res.error);
         else save();
       });
@@ -278,20 +318,20 @@ tr.lm-cand{outline:3px solid #f59f00;outline-offset:-3px}
 
   function run(p) {
     clearPicker();
-    const { rows: cands, boxes, table } = candidates(p);
+    const { rows: cands, table } = candidates(p);
     if (!cands.length) {
       return { ok: false, error: `"${p.receiver}" 주문건을 이 목록에서 찾지 못했습니다.` };
     }
     const tied = cands.filter((c) => c.s === cands[0].s);
     if (tied.length > 1) {
-      showPicker(tied, p, boxes, table);
+      showPicker(tied, p, table);
       return {
         ok: false,
         needsPick: true,
         error: `"${p.receiver}" 후보가 ${tied.length}건입니다. 망고 탭에서 직접 선택해주세요.`,
       };
     }
-    const res = apply(cands[0], p, boxes, table);
+    const res = apply(cands[0], p, table);
     // 저장은 결과를 반환한 뒤에 — confirm 승인 직후 페이지가 이동해도 결과가 유실되지 않도록
     if (res.ok) setTimeout(save, 0);
     return res;
