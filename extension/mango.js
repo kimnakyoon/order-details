@@ -130,10 +130,28 @@
     const col = columnIndex(table);
     const tags = tagList(p);
     const trs = table.rows;
-    for (let i = 0; i < trs.length; i++) {
+
+    // 1단계는 **행마다 도는 유일한 구간**이라 여기서만 손으로 편다.
+    //
+    // `cellText()` 호출과 그 안의 조건 두 번, `col.receiver`·`p.receiver`·`trs.length`
+    // property 로드가 행마다 붙는다. 51행이면 각각 51번이다. 편 쪽이 꾸준히 20% 싸고,
+    // 무엇보다 **최악값이 좁아진다** — 0.0184 / 최악 0.038 → 0.0145 / 최악 0.020ms
+    // (500회 × 15시행 × 3회차 중앙값, 2026-08-31 실측).
+    //
+    // 폴백 규칙은 `cellText()` 와 글자 그대로 같다: 칸 위치를 못 찾았거나(-1) 그 칸이 없으면
+    // 행 전체 텍스트로 떨어진다. `cellText()` 자체는 그대로 둔다 — `score()` 에서 결제금액·
+    // 주문번호 칸을 읽는 데 쓰는데, 그쪽은 1단계를 통과한 소수의 행에서만 돈다.
+    //
+    // `trs.length` 를 밖으로 뺐지만 루프 안에서 DOM 을 바꾸지 않으므로(읽기만 한다)
+    // 라이브 컬렉션의 길이가 도중에 달라질 일이 없다.
+    const rc = col.receiver;
+    const who = p.receiver;
+    const n = trs.length;
+    for (let i = 0; i < n; i++) {
       const tr = trs[i];
       // 1단계 — 수령인 칸만 읽어 거른다. 행 전체의 1/150 이라 대부분 여기서 끝난다.
-      if (!cellText(tr, col.receiver).includes(p.receiver)) continue;
+      const cell = rc >= 0 ? tr.cells[rc] : null;
+      if (!(cell ? cell.textContent : tr.textContent).includes(who)) continue;
       // 2단계 — 살아남은 소수의 행만 체크박스와 나머지 칸을 읽는다.
       const cb = rowBox(tr);
       if (!cb) continue;
@@ -223,6 +241,20 @@
     //
     // 스캔에서 체크박스를 모으지 않게 됐으니(candidates 주석) 여기서 행마다 집는다 — 0.013ms 다.
     // 문서 조회로 모으면 0.026~0.028ms 라 이쪽이 싸고, 매칭에 실패한 전송에서는 아예 돌지 않는다.
+    //
+    // ── 더 빨라 보이는 두 방법을 재보고 버렸다 (2026-08-31 실측) ────────────────
+    //
+    // 50개를 한 번에 집는 라이브 컬렉션이 warm 일 때는 4배 빠르다. 그런데 **DOM 이 한 번이라도
+    // 바뀌면** 캐시가 날아가면서 문서 크기(요소 16,697개)에 묶인 비용으로 되돌아간다.
+    //
+    //   행마다 querySelector (지금)        warm 0.0134ms   DOM 바뀐 뒤 0.0136ms
+    //   table.getElementsByClassName        warm 0.0032ms   DOM 바뀐 뒤 0.3892ms  (122배)
+    //   form.elements['uid_check[]']        warm 0.0042ms   DOM 바뀐 뒤 0.8964ms  (213배)
+    //
+    // 그리고 이 자리는 **DOM 이 막 바뀐 직후일 확률이 높다** — 바로 위에서 writeMemo 가 값을
+    // 넣고, 후보 UI 를 띄웠던 전송이라면 clearPicker() 가 요소를 지우고 시작한다.
+    // 롯데아이몰에서 라이브 컬렉션을 피한 것과 같은 이유다: 평균이 아니라 **최악이 안 튀는 쪽**.
+    // 지금 방식은 warm/cold 차이가 없다 (0.0134 / 0.0136ms).
     const trs = table ? table.rows : [];
     for (let i = 0; i < trs.length; i++) {
       const cb = rowBox(trs[i]);
