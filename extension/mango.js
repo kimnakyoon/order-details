@@ -44,10 +44,37 @@
   //
   // 순서가 바뀌어 셋이 뒤쪽에 있어도 결과는 같다. 끊는 조건이 '몇 번째 칸까지' 가 아니라
   // '셋을 다 찾았는가' 라, 못 찾으면 예전처럼 끝까지 훑는다.
+
+  // ── 표와 헤더는 문서당 한 번만 찾는다 (2026-08-31 실측) ────────────────────
+  //
+  // 이 셋(`querySelector` + `closest` + 헤더 읽기)은 **전송마다 같은 답**을 낸다. 목록을
+  // 새로 검색하거나 저장이 끝나면 망고가 페이지를 통째로 다시 읽으므로(폼 POST) 그때는
+  // 문서가 통째로 새것이고 이 캐시도 함께 사라진다.
+  //
+  //   매번 다시 찾기  0.0035 ms (최악 0.0049)
+  //   캐시            0.0001 ms (최악 0.0001)
+  //
+  // 스캔 한 번이 0.0204 → 0.017 ms 다 (3,000회·500회 × 15시행 중앙값). [선택수정] 버튼을
+  // 문서당 한 번만 찾는 것과 같은 장치이고, 같은 안전장치를 쓴다 — **낡았는지 스스로
+  // 확인한다.** 표가 갈려 나갔으면 `isConnected` 가 false 라 다시 찾고, 표는 그대로인데
+  // 헤더 행이 새로 그려졌으면 그 행이 다른 객체라 칸 위치를 다시 읽는다.
+  let tableEl = null;
+  let headEl = null;
+  let colCache = null;
+
+  function listTable() {
+    if (tableEl && tableEl.isConnected) return tableEl;
+    const first = document.querySelector('input.chklist[name="uid_check[]"]');
+    tableEl = first ? first.closest('table') : null;
+    headEl = null; // 표가 바뀌었으면 칸 위치도 다시 읽는다
+    return tableEl;
+  }
+
   function columnIndex(table) {
-    const col = { receiver: -1, price: -1, info: -1 };
     const head = table && table.rows[0];
-    if (!head) return col;
+    if (!head) return { receiver: -1, price: -1, info: -1 };
+    if (headEl === head) return colCache;
+    const col = { receiver: -1, price: -1, info: -1 };
     let left = 3;
     for (let i = 0; i < head.cells.length && left; i++) {
       const s = head.cells[i].textContent.replace(/\s/g, '');
@@ -62,6 +89,8 @@
         left--;
       }
     }
+    headEl = head;
+    colCache = col;
     return col;
   }
 
@@ -119,7 +148,8 @@
   //
   // 그런데 후보 판정의 1단계는 **수령인 칸 하나**만 본다. 체크박스는 그 관문을 통과한 소수의
   // 행에만 필요하다. 그래서 `table.rows`(51행)를 돌며 수령인 칸부터 읽고, 살아남은 행에서만
-  // 첫 칸의 체크박스를 집는다. 표를 찾는 데 드는 문서 조회는 **하나(첫 체크박스)** 뿐이다.
+  // 첫 칸의 체크박스를 집는다. 표를 찾는 데 드는 문서 조회는 **하나(첫 체크박스)** 뿐이고,
+  // 그것도 `listTable()` 이 문서당 한 번만 낸다 (윗절).
   //
   // `table.rows` 는 라이브 컬렉션이라 DOM 이 바뀌면 캐시가 식지만, 다시 만드는 비용이 문서가
   // 아니라 **그 표의 행 수**에 묶인다 — 실측 0.031ms(식음) / 0.029ms(따뜻함)로 차이가 없다.
@@ -130,9 +160,8 @@
   // 첫 칸에 체크박스가 없어 걸러진다 — 행을 체크박스로 찾던 예전과 결과가 같다.
   function candidates(p) {
     const out = [];
-    const first = document.querySelector('input.chklist[name="uid_check[]"]');
-    if (!first) return { rows: out, table: null };
-    const table = first.closest('table');
+    const table = listTable();
+    if (!table) return { rows: out, table: null };
     const col = columnIndex(table);
     const tags = tagList(p);
     const trs = table.rows;
