@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "마켓 주문상세 → The.Mango 전송",
-  "version": "1.11.1",
-  "description": "롯데온·SSG·무신사·네이버페이·패션플러스·지마켓·롯데아이몰·더현대Hi·CJ온스타일·NS몰 주문상세 정보를 클릭 한 번으로 The.Mango 주문건에 옮기고 주문상태를 배송완료로 변경합니다.",
+  "version": "1.12.0",
+  "description": "롯데온·SSG·무신사·네이버페이·패션플러스·지마켓·롯데아이몰·더현대Hi·CJ온스타일·NS몰·GS SHOP 주문상세 정보를 클릭 한 번으로 The.Mango 주문건에 옮기고 주문상태를 배송완료로 변경합니다.",
   "permissions": ["tabs", "scripting", "notifications", "storage"],
   "host_permissions": [
     "https://www.lotteon.com/*",
@@ -15,6 +15,7 @@
     "https://hi.thehyundai.com/*",
     "https://base.cjonstyle.com/*",
     "https://m.nsmall.com/*",
+    "https://www.gsshop.com/*",
     "https://pay.musinsapayments.com/*",
     "https://dashboard.tosspayments.com/*",
     "https://tmg4087.mycafe24.com/*",
@@ -84,6 +85,12 @@
     {
       "matches": ["https://m.nsmall.com/*"],
       "js": ["common.js", "nsmall.js"],
+      "css": ["site.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.gsshop.com/ord/dlvcursta/popup/ordDtl.gs*"],
+      "js": ["common.js", "gsshop.js"],
       "css": ["site.css"],
       "run_at": "document_idle"
     }
