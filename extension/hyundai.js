@@ -80,8 +80,32 @@
     return /-\s*[\d,]/.test(t) ? -n : n;
   };
 
-  const ordNo = () => (new URLSearchParams(location.search).get('ordNo') || '').trim();
+  // watch 틱마다 불린다. 주소는 좀처럼 안 바뀌므로 `location.search` 가 그대로면 그대로 돌려준다
+  // — 사이트 전체에 걸린 뒤로는 주문상세가 아닌 화면에서도 도는 함수라 매번 URLSearchParams 를
+  // 새로 만들 이유가 없다.
+  let seenSearch = null;
+  let seenOrdNo = '';
+  const ordNo = () => {
+    const q = location.search;
+    if (q !== seenSearch) {
+      seenSearch = q;
+      seenOrdNo = (new URLSearchParams(q).get('ordNo') || '').trim();
+    }
+    return seenOrdNo;
+  };
+
   const pageUrl = (no) => 'https://hi.thehyundai.com/mypage/order/detail?ordNo=' + no;
+
+  // 브라우저가 **문서를 실제로 읽어 온 주소**의 주문번호. 인라인 플라이트가 누구 것인지는
+  // 이걸로 정해진다 (inline() 참고). 문서마다 한 번만 구하면 되고 바뀌지 않는다.
+  // `null` = 알 수 없음 (그러면 예전처럼 뒤져 본다), `''` = 그 주소에 ordNo 가 없었다.
+  const docOrdNo = (() => {
+    const nav = performance.getEntriesByType('navigation')[0];
+    if (!nav || !nav.name) return null;
+    const q = nav.name.indexOf('?');
+    if (q === -1) return '';
+    return (new URLSearchParams(nav.name.slice(q)).get('ordNo') || '').trim();
+  })();
 
   // '2026.08.27 07:42:09' 을 그대로 쓴다. 형태가 어긋나면 빈 값 -> 오류로 잡힌다.
   function when(s) {
@@ -122,7 +146,14 @@
   }
 
   // 문서에 박혀 있는 플라이트. **지금 주문번호를 함께 담고 있을 때만** 믿는다 (윗주석 참고).
+  //
+  // 그런데 담고 있을 수 있는 문서는 애초에 하나뿐이다. Next.js 가 `self.__next_f` 스크립트를
+  // 붙이는 건 **문서를 스트리밍하는 동안**뿐이고, 클라이언트 이동은 fetch 로 받아 화면만
+  // 갈아끼울 뿐 스크립트를 새로 붙이지 않는다. 그러니 문서를 읽어 온 주소가 이 주문이 아니면
+  // 나올 리가 없다 — 스크립트 97개(54KB)를 전부 문자열로 만들어 훑는 일을 통째로 건너뛰고
+  // 바로 받으러 간다. 목록·홈피드에서 눌러 들어온 경로가 전부 여기에 해당한다.
   function inline(no) {
+    if (docOrdNo !== null && docOrdNo !== no) return '';
     const s = document.getElementsByTagName('script');
     for (let i = 0; i < s.length; i++) {
       const t = s[i].textContent;
@@ -213,22 +244,28 @@
   // ── 버튼 자리 = 상단 '주문번호 260827001839005' 의 복사 버튼 뒤 ─────────────
   //
   // SPA 라 watch 가 이 함수를 주기적으로 부른다. 매번 dt 를 훑지 않도록 찾은 요소를 캐시하고,
-  // 연결돼 있고 그 칸이 지금 주문번호를 담고 있는 동안에는 그대로 돌려준다 (무신사와 같다).
+  // 찾아 둔 주문이 그대로이고 요소가 아직 붙어 있는 동안에는 그대로 돌려준다 (무신사와 같다).
   let cached = null;
+  let cachedNo = '';
 
   function anchor() {
     const no = ordNo();
     if (!no) {
       // 주문상세가 아닌 화면이다 — 버튼을 떼고 받아 둔 수령인도 버린다.
       cached = null;
+      cachedNo = '';
       forget();
       return null;
     }
-    if (!cached || !cached.isConnected || cached.parentElement.textContent.indexOf(no) === -1) {
+    // 어느 주문에서 찾아 둔 자리인지를 기억한다. 예전에는 칸의 `textContent` 에 지금 주문번호가
+    // 들어 있는지로 판단했는데, 그건 틱마다 칸을 문자열로 새로 만드는 일이었다. 다시 찾을 때를
+    // 정하는 데 쓰일 뿐이라 주문번호를 들고 있으면 똑같이 판별되고 문자열은 만들지 않는다.
+    if (cachedNo !== no || !cached || !cached.isConnected) {
       const dd = labels().ordDd;
       // 복사 버튼 뒤에 붙여야 번호와 같은 줄에 들어간다. 없으면 번호 뒤에 붙인다.
       cached = dd && (dd.querySelector('button') || dd.querySelector('p'));
       if (!cached) return null;
+      cachedNo = no;
     }
     // 버튼 자리가 있다 = 주문상세가 그려졌다. 이때 수령인을 미리 받아 둔다.
     prefetch(no);
