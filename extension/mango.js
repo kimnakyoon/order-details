@@ -36,15 +36,31 @@
 
   // 컬럼 위치는 헤더에서 한 번만 읽는다. 못 찾으면 -1 로 두고 행 전체 텍스트로 폴백한다.
   // 이렇게 하면 망고가 컬럼 순서를 바꿔도 따라가고, 못 따라가도 동작은 한다.
+  //
+  // **셋을 다 찾으면 거기서 끊는다.** 헤더는 7칸인데 우리가 쓰는 셋은 1·2·3번이고,
+  // 그 뒤 5번 `주문상태` 칸에는 정렬 드롭다운이 들어 있어 textContent 가 들여쓰기 공백만
+  // 200자가 넘는다 — `replace(/\s/g,'')` 가 이 한 칸에서 대부분의 시간을 쓴다.
+  // 끊고 나면 그 칸을 아예 문자열로 만들지 않는다 (0.0042 → 0.0014ms, 2026-08-31 실측).
+  //
+  // 순서가 바뀌어 셋이 뒤쪽에 있어도 결과는 같다. 끊는 조건이 '몇 번째 칸까지' 가 아니라
+  // '셋을 다 찾았는가' 라, 못 찾으면 예전처럼 끝까지 훑는다.
   function columnIndex(table) {
     const col = { receiver: -1, price: -1, info: -1 };
     const head = table && table.rows[0];
     if (!head) return col;
-    for (let i = 0; i < head.cells.length; i++) {
+    let left = 3;
+    for (let i = 0; i < head.cells.length && left; i++) {
       const s = head.cells[i].textContent.replace(/\s/g, '');
-      if (col.receiver < 0 && s.indexOf('수령인') === 0) col.receiver = i;
-      else if (col.price < 0 && s.indexOf('결제금액') === 0) col.price = i;
-      else if (col.info < 0 && s.indexOf('주문번호') === 0) col.info = i;
+      if (col.receiver < 0 && s.indexOf('수령인') === 0) {
+        col.receiver = i;
+        left--;
+      } else if (col.price < 0 && s.indexOf('결제금액') === 0) {
+        col.price = i;
+        left--;
+      } else if (col.info < 0 && s.indexOf('주문번호') === 0) {
+        col.info = i;
+        left--;
+      }
     }
     return col;
   }
@@ -224,18 +240,25 @@
   // [선택수정] 버튼. onclick 속성으로 한 번에 집는다.
   //
   // 예전에는 a/button/input 1,543개를 돌며 innerText 를 읽었다 — 0.49ms 인 데다
-  // innerText 는 요소마다 레이아웃을 강제한다. 속성 선택자는 0.016ms 다.
-  // 망고가 핸들러 이름을 바꾸면 예전 방식(라벨 텍스트, 단 textContent)으로 떨어진다.
+  // innerText 는 요소마다 레이아웃을 강제한다. 속성 선택자는 그보다 30배 싸다.
   //
-  // 그 0.016ms 도 **한 문서에서 한 번만** 낸다. `[onclick*=...]` 은 인덱스가 없어 문서를 통째로
-  // 훑는 선택자인데, 버튼은 목록을 다시 그리지 않는 한 그대로 있다. 목록을 새로 검색하면 문서가
-  // 통째로 바뀌므로(전체 페이지 이동) 이 캐시도 함께 사라진다. 그 사이에 사라졌다면
-  // `isConnected` 가 false 라 다시 찾는다. 주문건을 연달아 보낼 때 매번 내던 비용이 없어진다.
+  // **클래스로 먼저 좁힌다.** `[onclick*=…]` 만 쓰면 인덱스가 없어 문서(요소 16,697개)를
+  // 순서대로 훑는다. 앞에 `a.defbtn_med` 를 붙이면 브라우저가 클래스 인덱스로 후보를 32개까지
+  // 줄인 뒤 그 안에서만 속성을 본다 — 0.0155 → 0.0080ms (400회 × 15시행 × 3회차 중앙값,
+  // 2026-08-31 실측).
+  //
+  // 못 찾으면 **클래스 없는 예전 선택자**로, 그것도 아니면 라벨 텍스트로 떨어진다. 망고가
+  // 버튼 클래스를 바꾸든 핸들러 이름을 바꾸든 한 단계씩 물러나며 계속 찾는다.
+  //
+  // 이 비용은 **한 문서에서 한 번만** 낸다. 버튼은 목록을 다시 그리지 않는 한 그대로 있다.
+  // 목록을 새로 검색하면 문서가 통째로 바뀌므로(전체 페이지 이동) 이 캐시도 함께 사라진다.
+  // 그 사이에 사라졌다면 `isConnected` 가 false 라 다시 찾는다.
+  const SAVE_CALL = '[onclick*="really_all_select_modify"]';
   let saveEl = null;
 
   function saveButton() {
     if (saveEl && saveEl.isConnected) return saveEl;
-    saveEl = document.querySelector('[onclick*="really_all_select_modify"]');
+    saveEl = document.querySelector('a.defbtn_med' + SAVE_CALL) || document.querySelector(SAVE_CALL);
     if (saveEl) return saveEl;
     const nodes = document.querySelectorAll('a, button, input[type=button]');
     for (let i = 0; i < nodes.length; i++) {
