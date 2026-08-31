@@ -1,5 +1,6 @@
 /* 주문번호 옆 인라인 버튼 (기본) */
-#lm-send-btn.lm-btn-inline {
+/* id 가 아니라 클래스로 잡는다 — 지마켓은 상품마다 버튼이 하나씩이라 한 페이지에 여럿 뜬다. */
+button.lm-send-btn.lm-btn-inline {
   display: inline-block;
   vertical-align: middle;
   margin-left: 10px;
@@ -12,11 +13,11 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
   cursor: pointer;
 }
-#lm-send-btn.lm-btn-inline:hover { background: #d9480f; }
-#lm-send-btn.lm-btn-inline:disabled { background: #adb5bd; cursor: default; }
+button.lm-send-btn.lm-btn-inline:hover { background: #d9480f; }
+button.lm-send-btn.lm-btn-inline:disabled { background: #adb5bd; cursor: default; }
 
 /* 주문번호를 못 찾았을 때의 폴백 (우측 하단 고정) */
-#lm-send-btn.lm-btn {
+button.lm-send-btn.lm-btn {
   position: fixed;
   right: 24px;
   bottom: 24px;
@@ -30,8 +31,8 @@
   box-shadow: 0 4px 14px rgba(0, 0, 0, .28);
   cursor: pointer;
 }
-#lm-send-btn.lm-btn:hover { background: #d9480f; }
-#lm-send-btn.lm-btn:disabled { background: #adb5bd; cursor: default; }
+button.lm-send-btn.lm-btn:hover { background: #d9480f; }
+button.lm-send-btn.lm-btn:disabled { background: #adb5bd; cursor: default; }
 
 #lm-toast.lm-toast {
   position: fixed;

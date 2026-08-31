@@ -22,10 +22,16 @@
     t._timer = setTimeout(() => (t.style.display = 'none'), kind === 'err' ? 60000 : 6000);
   }
 
-  // cfg = { extract: () => payload|{error}, anchor: () => Element|null, watch?: boolean }
+  // cfg = { extract: () => payload|{error}, anchor: () => Element|null, watch?: boolean, key?: string }
+  //
+  // 한 페이지에 버튼이 여럿 붙을 수 있다 (지마켓은 상품마다 하나씩이다). 그래서 버튼은
+  // id 가 아니라 클래스로 식별하고, 자리마다 다른 key 를 달아 **같은 key 끼리만** 껍데기를
+  // 정리한다 (place() 주석 참고). key 를 주지 않으면 자리가 하나뿐이라는 뜻이다.
   function mount(cfg) {
+    const key = cfg.key || 'default';
     const btn = document.createElement('button');
-    btn.id = 'lm-send-btn';
+    btn.className = 'lm-send-btn';
+    btn.dataset.lmKey = key;
     btn.type = 'button';
     btn.textContent = '🥭 망고로 전송';
     btn.addEventListener('click', async () => {
@@ -77,11 +83,15 @@
       // 새로 그린다.** 우리가 먼저 붙여 둔 버튼도 그 템플릿에 섞여 들어가, 마크업은 똑같지만
       // 리스너가 없는 껍데기로 다시 태어난다 (눌러도 아무 일도 일어나지 않는다).
       // 진짜 버튼을 다시 붙이기 전에 그 껍데기를 걷어낸다.
-      const stale = document.querySelectorAll('#lm-send-btn');
+      //
+      // 같은 key 만 지운다. 지마켓처럼 버튼이 여러 개인 화면에서 전부 지우면, 자리마다 도는
+      // 옵저버가 서로의 버튼을 걷어내고 다시 붙이기를 반복하게 된다. 껍데기는 복제본이라
+      // data-lm-key 를 그대로 물려받으므로 이걸로 자기 자리 것만 골라낼 수 있다.
+      const stale = document.querySelectorAll('.lm-send-btn[data-lm-key="' + key + '"]');
       for (let i = 0; i < stale.length; i++) {
         if (stale[i] !== btn) stale[i].remove();
       }
-      btn.className = 'lm-btn-inline';
+      btn.className = 'lm-send-btn lm-btn-inline';
       el.insertAdjacentElement('afterend', btn);
       return true;
     }
@@ -109,7 +119,7 @@
         setTimeout(() => {
           if (!btn.isConnected) {
             obs.disconnect();
-            btn.className = 'lm-btn';
+            btn.className = 'lm-send-btn lm-btn';
             document.body.appendChild(btn);
           }
         }, 10000);
