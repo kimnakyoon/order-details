@@ -24,14 +24,19 @@
   // 버튼 자리이자 결제일시를 찾는 기준점이다. 네이버페이는 SPA 라 주문목록에서
   // 주문상세로 문서를 다시 읽지 않고 넘어간다. common.js 의 watch 가 anchor 를 계속
   // 부르므로, 찾은 요소를 캐시해 매번 문서를 훑지 않게 한다 (무신사와 같은 이유).
+  // 어느 주문에서 찾아 둔 자리인지를 기억한다. textContent 로 확인하면 틱마다 요소를
+  // 문자열로 새로 만든다 — 다시 찾을 때를 정하는 데만 쓰이는 값이라, 찾을 때의 주문번호를
+  // 들고 있으면 판별은 똑같고 문자열은 만들지 않는다 (더현대Hi·NS몰과 같은 절약).
   let cached = null;
+  let cachedNo = '';
 
   function anchor() {
     const no = orderNo();
     if (!no) return null; // 주문상세가 아닌 화면 -> 버튼을 뗀다
-    if (cached && cached.isConnected && cached.textContent.indexOf(no) !== -1) return cached;
+    if (cached && cachedNo === no && cached.isConnected) return cached;
 
     cached = null;
+    cachedNo = '';
     const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let n = walk.nextNode(); n; n = walk.nextNode()) {
       if (n.nodeValue.length > 60) continue;
@@ -39,6 +44,7 @@
       const el = n.parentElement;
       if (el && el.offsetParent !== null) {
         cached = el;
+        cachedNo = no;
         break;
       }
     }

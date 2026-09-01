@@ -56,13 +56,50 @@
     }
   }
 
+  // ── 주문정보 — 한 화면을 보는 동안 한 번만 받는다 (지마켓·더현대Hi 와 같은 방식) ──
+  //
+  // 예전에는 클릭할 때마다 get_order_view 를 새로 받아서, 그 왕복이 고스란히 '전송 중…' 으로
+  // 보였다. 버튼 자리가 잡혔다 = 주문상세가 이미 그려졌다는 뜻이라(SPA 가 자기 데이터를 받아
+  // 그린 결과다) 그때 미리 받아 두면 클릭은 기다리지 않는다.
+  //
+  // 캐시는 지금 보고 있는 주문 하나뿐이고, 주문상세를 떠나면 버린다 (anchor 참고).
+  let cache = { no: '', data: null };
+  let asked = '';
+  // 승인일시도 주문건 단위로 들고 있는다. 이 값은 그 주문에서 다시 달라질 값이 아닌데,
+  // 재전송마다 영수증 탭을 새로 띄워 다시 읽는 건(이 경로에서 제일 긴 구간이다) 통째로 낭비다.
+  let pdCache = { no: '', v: '' };
+
+  function orderView(no) {
+    if (cache.no !== no) cache = { no, data: null };
+    if (!cache.data) cache.data = json('/order-service/my/order/get_order_view/' + no);
+    // 실패한 응답을 물고 있지 않는다 — 다음 클릭은 새로 받는다.
+    return cache.data.catch((e) => {
+      if (cache.no === no) cache.data = null;
+      throw e;
+    });
+  }
+
+  function prefetch(no) {
+    if (!no || asked === no) return;
+    asked = no;
+    orderView(no).catch(() => {}); // 실패해도 조용히 — 클릭할 때 다시 받는다
+  }
+
+  // 주문상세를 떠났다 = 다음에 들어올 때 다시 받는다.
+  function forget() {
+    if (!asked && !cache.no && !pdCache.no) return;
+    asked = '';
+    cache = { no: '', data: null };
+    pdCache = { no: '', v: '' };
+  }
+
   async function extract() {
     const no = orderNo();
     if (!no) return { error: '주문상세 화면이 아닙니다 (주문번호를 찾지 못했습니다).' };
 
     let ov;
     try {
-      ov = await json('/order-service/my/order/get_order_view/' + no);
+      ov = await orderView(no); // 대개 이미 받아 둔 값이라 기다리지 않는다
     } catch (e) {
       return { error: '주문정보를 불러오지 못했습니다 — ' + e.message };
     }
@@ -82,9 +119,9 @@
     }
     if (!price) return { error: '결제금액을 찾지 못했습니다.' };
 
-    // 영수증 -> 거래명세서 -> 주문일시 순으로 떨어진다.
-    let payDate = '';
-    if (oi.receiptPageUrl) {
+    // 영수증 -> 거래명세서 -> 주문일시 순으로 떨어진다. 한 번 얻은 값은 재사용한다 (윗절).
+    let payDate = pdCache.no === no ? pdCache.v : '';
+    if (!payDate && oi.receiptPageUrl) {
       try {
         const r = await chrome.runtime.sendMessage({ type: 'READ_RECEIPT', url: oi.receiptPageUrl });
         if (r && r.datetime) payDate = dash(r.datetime);
@@ -95,6 +132,7 @@
     if (!payDate) payDate = await statementDate(no);
     if (!payDate && ov.orderList) payDate = dash(ov.orderList.orderDatetime);
     if (!payDate) return { error: '결제일시를 찾지 못했습니다 (영수증·거래명세서 모두 실패).' };
+    pdCache = { no, v: payDate };
 
     return {
       url: 'https://www.musinsa.com/order/order-detail/' + no,
@@ -111,15 +149,26 @@
   //
   // 무신사는 SPA 라 주문목록 -> 주문상세로 문서를 다시 읽지 않고 넘어간다. common.js 의
   // watch 가 이 함수를 주기적으로 부르므로, 매번 문서를 훑지 않도록 찾은 요소를 캐시한다.
-  // 캐시가 살아 있는 한(연결돼 있고 지금 주문번호를 담고 있는 한) 비용은 사실상 0이다.
+  // 캐시가 살아 있는 한(연결돼 있고 같은 주문에서 찾은 자리인 한) 비용은 사실상 0이다.
+  // 어느 주문에서 찾아 둔 자리인지를 기억한다. textContent 로 확인하면 틱마다 요소를
+  // 문자열로 새로 만든다 — 다시 찾을 때를 정하는 데만 쓰이는 값이라, 찾을 때의 주문번호를
+  // 들고 있으면 판별은 똑같고 문자열은 만들지 않는다 (더현대Hi·NS몰과 같은 절약).
   let cached = null;
+  let cachedNo = '';
 
   function anchor() {
     const no = orderNo();
-    if (!no) return null; // 주문상세가 아닌 화면 -> 버튼을 뗀다
-    if (cached && cached.isConnected && cached.textContent.indexOf(no) !== -1) return cached;
+    if (!no) {
+      forget(); // 주문상세가 아닌 화면 -> 버튼을 떼고 받아 둔 주문정보도 버린다
+      return null;
+    }
+    if (cached && cachedNo === no && cached.isConnected) {
+      prefetch(no); // 버튼 자리가 있다 = 주문상세가 그려졌다. 주문정보를 미리 받아 둔다.
+      return cached;
+    }
 
     cached = null;
+    cachedNo = '';
     const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let n = walk.nextNode(); n; n = walk.nextNode()) {
       if (n.nodeValue.length > 60) continue;
@@ -127,9 +176,11 @@
       const el = n.parentElement;
       if (el && el.offsetParent !== null) {
         cached = el;
+        cachedNo = no;
         break;
       }
     }
+    if (cached) prefetch(no);
     return cached;
   }
 

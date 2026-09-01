@@ -63,9 +63,14 @@ async function runApply(tabId, payload) {
 
 // 탭 객체를 그대로 받는다. chrome.tabs.query 가 windowId 를 이미 실어 주므로
 // windowId 하나 때문에 chrome.tabs.get 을 다시 부를 필요가 없다.
-async function focus(tab) {
-  await chrome.tabs.update(tab.id, { active: true });
-  await chrome.windows.update(tab.windowId, { focused: true });
+//
+// 두 호출은 서로를 기다릴 이유가 없다 — 탭 활성화와 창 포커스는 대상이 달라 순서가
+// 결과를 바꾸지 않는다. 나란히 보내 왕복 하나를 줄인다.
+function focus(tab) {
+  return Promise.all([
+    chrome.tabs.update(tab.id, { active: true }),
+    chrome.windows.update(tab.windowId, { focused: true }),
+  ]);
 }
 
 const mangoTabs = () => chrome.tabs.query({ url: MANGO_LIST + '*' });
@@ -78,7 +83,10 @@ async function applyHere(payload, tabs) {
   for (const t of tabs) {
     const res = await runApply(t.id, payload);
     if (res.ok || res.needsPick) {
-      await focus(t);
+      // 포커스는 기다리지 않는다. 반영은 이미 끝났고, 여기서 기다리면 그 왕복만큼 보낸 쪽
+      // 토스트가 늦는다. 실패해도(그새 창이 닫혔다든가) 반영 결과와는 무관한데, await 로
+      // 두면 그 예외가 성공한 전송을 실패 토스트로 둔갑시킨다.
+      focus(t).catch(() => {});
       return res;
     }
     lastError = res.error || lastError;
@@ -132,8 +140,12 @@ async function readReceipt(url) {
   }
   try {
     // 리다이렉트 + 클라이언트 렌더까지 기다린다. 보통 1초 안에 잡힌다.
-    for (let i = 0; i < 25; i++) {
-      await sleep(300);
+    //
+    // 값이 생기는 시점은 못 고르지만 **발견하는 시점**은 폴링 간격에 묶인다 — 값이 생긴 뒤
+    // 평균 간격의 절반을 헛기다린다. 간격을 줄이면 그 몫이 준다. 헛도는 탐침은 이동 중인
+    // 탭에서 곧장 거부되어 값싸고, 전체 대기 상한은 그대로 7.5초다 (150ms × 50).
+    for (let i = 0; i < 50; i++) {
+      await sleep(150);
       try {
         const [r] = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
