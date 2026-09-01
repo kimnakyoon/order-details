@@ -219,13 +219,31 @@
   // 이 조건이 늦추는 것은 없고, 대신 **버튼이 보이면 값도 있다**는 성질이 생긴다
   // (CJ온스타일과 같은 성질을 여기서는 조건으로 만든다).
   //
-  // `watch` 라 150ms 마다 불린다. 캐시는 두지 않는다 — 주소 파싱은 `location.search` 가
-  // 그대로면 건너뛰고, 남는 건 좁은 선택자 둘(0.0003 ms + 0.0001 ms)뿐이라 캐시를 들고
-  // 다니는 것보다 그냥 찾는 게 싸다 (NS몰과 같은 결정).
+  // `watch` 라 150ms 마다 불린다. 찾은 요소를 들고 있다가 **같은 주문이고 아직 붙어 있으면**
+  // 그대로 돌려준다 (무신사·더현대Hi 와 같은 방식). 재 보니 다시 찾기 0.0022 ms, 캐시 적중
+  // 0.0005 ms (5,000회 × 15시행 중앙값) — 라우트가 바뀐 틱에만 문서를 본다.
+  // React 가 화면을 갈아 끼우면 `isConnected` 가 false 라 다시 찾고, 그때 결제내역 유무도
+  // 다시 확인한다. 주문상세가 아닌 화면(`ordNo` 없음)에서는 캐시를 버리고 바로 `null` 이다.
+  let cached = null;
+  let cachedNo = '';
+
   function anchor() {
-    if (!ordNo()) return null;
+    const no = ordNo();
+    if (!no) {
+      cached = null;
+      cachedNo = '';
+      return null;
+    }
+    if (cachedNo === no && cached && cached.isConnected) return cached;
     const p = document.querySelector('.shipping-head .number p');
-    return p && sections().hist ? p : null;
+    if (p && sections().hist) {
+      cached = p;
+      cachedNo = no;
+      return p;
+    }
+    cached = null;
+    cachedNo = '';
+    return null;
   }
 
   window.__LM_SITE__.mount({ extract, anchor, watch: true });
