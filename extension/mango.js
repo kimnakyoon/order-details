@@ -181,30 +181,44 @@
     // 라이브 컬렉션의 길이가 도중에 달라질 일이 없다.
     const rc = col.receiver;
     const who = p.receiver;
-    // 마스킹된 수령인은 '*' 를 와일드카드로 본다. W컨셉은 주문상세에 이름을 '최*영' 처럼
+    const n = trs.length;
+
+    // 마스킹된 수령인만 '*' 를 와일드카드로 본다. W컨셉은 주문상세에 이름을 '최*영' 처럼
     // 가려 내려주는데, 망고 목록에는 실명이 들어 있어 부분일치(includes)로는 걸러지지 않는다.
     // '*' 를 '.+' 로 바꿔 성+끝글자로 좁힌다 ('최*영' → /최.+영/). 결제금액이 뒤에서 +4 로
     // 후보를 마저 가르고, 그래도 동점이면 선택창이 뜬다.
     //
-    // '*' 가 없는 나머지 사이트는 rx 가 null 이라 예전 그대로 includes 를 탄다 — 정규식을
-    // 만들지도, 테스트하지도 않는다. 정규식은 루프 밖에서 딱 한 번 만든다 (행마다 도는 1단계
-    // 비용은 그대로).
-    const rx =
-      who.indexOf('*') !== -1
-        ? new RegExp(who.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.+'))
-        : null;
-    const n = trs.length;
-    for (let i = 0; i < n; i++) {
-      const tr = trs[i];
-      // 1단계 — 수령인 칸만 읽어 거른다. 행 전체의 1/150 이라 대부분 여기서 끝난다.
-      const cell = rc >= 0 ? tr.cells[rc] : null;
-      const str = cell ? cell.textContent : tr.textContent;
-      if (rx ? !rx.test(str) : !str.includes(who)) continue;
-      // 2단계 — 살아남은 소수의 행만 체크박스와 나머지 칸을 읽는다.
-      const cb = rowBox(tr);
-      if (!cb) continue;
-      const s = score(tr, cb.value, p, col, tags);
-      if (s > 0) out.push({ uid: cb.value, cb, tr, s });
+    // **분기는 루프 밖에서 딱 한 번 한다.** 마스킹 여부는 payload 하나에 고정된 값이라 행마다
+    // 다시 볼 이유가 없다. '*' 가 없는 흔한 경로(기존 사이트 전부)는 아래 else 루프가 예전과
+    // 글자 그대로 같다 — 행마다 도는 1단계에 정규식도, 분기 하나도, `str` 지역변수도 늘지
+    // 않는다. 정규식은 W컨셉에서만, 그것도 루프에 들기 전에 한 번 만든다. 두 루프의 2단계
+    // (체크박스·score·push)는 같지만, 그건 1단계 관문을 통과한 소수의 행에서만 도는 코드라
+    // 함수로 빼 호출을 남기느니(README 가 경계하는 행마다-클로저) 그대로 편다.
+    if (who.indexOf('*') !== -1) {
+      const rx = new RegExp(
+        who.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.+')
+      );
+      for (let i = 0; i < n; i++) {
+        const tr = trs[i];
+        const cell = rc >= 0 ? tr.cells[rc] : null;
+        if (!rx.test(cell ? cell.textContent : tr.textContent)) continue;
+        const cb = rowBox(tr);
+        if (!cb) continue;
+        const s = score(tr, cb.value, p, col, tags);
+        if (s > 0) out.push({ uid: cb.value, cb, tr, s });
+      }
+    } else {
+      for (let i = 0; i < n; i++) {
+        const tr = trs[i];
+        // 1단계 — 수령인 칸만 읽어 거른다. 행 전체의 1/150 이라 대부분 여기서 끝난다.
+        const cell = rc >= 0 ? tr.cells[rc] : null;
+        if (!(cell ? cell.textContent : tr.textContent).includes(who)) continue;
+        // 2단계 — 살아남은 소수의 행만 체크박스와 나머지 칸을 읽는다.
+        const cb = rowBox(tr);
+        if (!cb) continue;
+        const s = score(tr, cb.value, p, col, tags);
+        if (s > 0) out.push({ uid: cb.value, cb, tr, s });
+      }
     }
     out.sort((a, b) => b.s - a.s);
     return { rows: out, table };
