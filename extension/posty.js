@@ -51,12 +51,13 @@
     };
   }
 
-  // 버튼은 '수령인' 줄(배송 정보) 뒤에 붙인다 — 헤더의 해시 클래스보다 안정적이다.
+  // 버튼은 헤더의 '(주문번호 …)' 바로 옆에 붙인다. 해시 클래스는 빌드마다 바뀌니 붙잡지
+  // 않고, '주문번호'가 든 leaf 요소를 텍스트로 찾는다.
   window.__LM_SITE__.mount({
     extract,
     anchor: () => {
-      for (const t of document.querySelectorAll('.row_title')) {
-        if (t.textContent.trim() === '수령인') return t.parentElement;
+      for (const el of document.querySelectorAll('p, span')) {
+        if (el.children.length === 0 && /주문번호\s*\d+/.test(el.textContent)) return el;
       }
       return null;
     },
