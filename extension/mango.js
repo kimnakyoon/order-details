@@ -181,12 +181,25 @@
     // 라이브 컬렉션의 길이가 도중에 달라질 일이 없다.
     const rc = col.receiver;
     const who = p.receiver;
+    // 마스킹된 수령인은 '*' 를 와일드카드로 본다. W컨셉은 주문상세에 이름을 '최*영' 처럼
+    // 가려 내려주는데, 망고 목록에는 실명이 들어 있어 부분일치(includes)로는 걸러지지 않는다.
+    // '*' 를 '.+' 로 바꿔 성+끝글자로 좁힌다 ('최*영' → /최.+영/). 결제금액이 뒤에서 +4 로
+    // 후보를 마저 가르고, 그래도 동점이면 선택창이 뜬다.
+    //
+    // '*' 가 없는 나머지 사이트는 rx 가 null 이라 예전 그대로 includes 를 탄다 — 정규식을
+    // 만들지도, 테스트하지도 않는다. 정규식은 루프 밖에서 딱 한 번 만든다 (행마다 도는 1단계
+    // 비용은 그대로).
+    const rx =
+      who.indexOf('*') !== -1
+        ? new RegExp(who.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.+'))
+        : null;
     const n = trs.length;
     for (let i = 0; i < n; i++) {
       const tr = trs[i];
       // 1단계 — 수령인 칸만 읽어 거른다. 행 전체의 1/150 이라 대부분 여기서 끝난다.
       const cell = rc >= 0 ? tr.cells[rc] : null;
-      if (!(cell ? cell.textContent : tr.textContent).includes(who)) continue;
+      const str = cell ? cell.textContent : tr.textContent;
+      if (rx ? !rx.test(str) : !str.includes(who)) continue;
       // 2단계 — 살아남은 소수의 행만 체크박스와 나머지 칸을 읽는다.
       const cb = rowBox(tr);
       if (!cb) continue;
