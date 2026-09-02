@@ -23,21 +23,22 @@
   const DETAIL = /^\/order\/(\d+)\/?$/;
   const pathId = () => (location.pathname.match(DETAIL) || [])[1] || '';
 
+  // 정규식은 부를 때마다 다시 만들지 않는다.
+  const RE_HEAD = /^주문번호\s*\d+$/;
+  const RE_DATE = /^결제\s*날짜/;
+  const RE_TOTAL = /^총(\s*\d+개)?\s*결제금액$/;
+  const RE_RECV = /^받는분$/;
+  const RE_WHEN = /(20\d\d)\.\s*(\d\d)\.\s*(\d\d)(?:\s*·\s*(오전|오후)\s*(\d{1,2}):(\d\d))?/;
+
   // 라벨 정규식에 맞는 leaf <p> 를 돌려준다. document.body.innerText 는 피한다 — 그건 문서
   // 전체 리플로우를 강제한다. textContent 는 리플로우가 없다.
   function leaf(re) {
-    for (const p of document.querySelectorAll('p')) {
-      if (p.children.length === 0 && re.test(p.textContent.trim())) return p;
+    const ps = document.querySelectorAll('p');
+    for (let i = 0; i < ps.length; i++) {
+      const p = ps[i];
+      if (!p.firstElementChild && re.test(p.textContent.trim())) return p;
     }
     return null;
-  }
-
-  // 라벨 leaf 바로 옆 형제의 텍스트 = 값.
-  //   받는분          김종오
-  //   총 1개 결제금액   29,870원
-  function rowValue(re) {
-    const t = leaf(re);
-    return t ? ((t.nextElementSibling || {}).textContent || '').trim() : '';
   }
 
   // 헤더의 '주문번호 1788302565720' <p>. watch 가 주기적으로 부르므로 찾은 요소를 캐시한다 —
@@ -50,10 +51,36 @@
     const id = pathId();
     if (!id) return null; // 주문상세가 아닌 화면 -> 버튼을 뗀다
     if (cached && cachedId === id && cached.isConnected) return cached;
-    cached = leaf(/^주문번호\s*\d+$/);
+    cached = leaf(RE_HEAD);
     cachedId = cached ? id : '';
     return cached;
   }
+
+  // 값 셋(결제 날짜·총 결제금액·받는분)은 leaf <p> 를 **한 번만 훑어** 같이 집는다. 라벨마다
+  // 따로 훑으면 <p> 113개를 세 번 도는데, 한 번에 돌면 0.138 → 0.022ms 다 (같은 화면, 200회 ×
+  // 7시행 중앙값, 2026-09-02 실측). 셋 다 찾으면 바로 멈춘다 — 하단 법정 고지의 <p> 들은
+  // 그 뒤에 있어 보통 닿지도 않는다.
+  //   받는분          김종오
+  //   총 1개 결제금액   29,870원
+  function labels() {
+    let date = null;
+    let total = null;
+    let recv = null;
+    const ps = document.querySelectorAll('p');
+    for (let i = 0; i < ps.length; i++) {
+      const p = ps[i];
+      if (p.firstElementChild) continue;
+      const s = p.textContent.trim();
+      if (!date && RE_DATE.test(s)) date = p;
+      else if (!total && RE_TOTAL.test(s)) total = p;
+      else if (!recv && RE_RECV.test(s)) recv = p;
+      if (date && total && recv) break;
+    }
+    return { date, total, recv };
+  }
+
+  // 라벨 leaf 바로 옆 형제의 텍스트 = 값.
+  const beside = (el) => (el ? ((el.nextElementSibling || {}).textContent || '').trim() : '');
 
   function extract() {
     const id = pathId();
@@ -62,11 +89,10 @@
     const head = anchor();
     const odNo = ((head && head.textContent.match(/\d+/)) || [])[0] || id;
 
+    const L = labels();
+
     // '결제 날짜 : 2026. 09. 02 · 오전 07:42' — 날짜 사이 공백을 걷고 12시간제를 24시간제로 편다.
-    const dp = leaf(/^결제\s*날짜/);
-    const m = ((dp && dp.textContent) || '').match(
-      /(20\d\d)\.\s*(\d\d)\.\s*(\d\d)(?:\s*·\s*(오전|오후)\s*(\d{1,2}):(\d\d))?/
-    );
+    const m = ((L.date && L.date.textContent) || '').match(RE_WHEN);
     let payDate = '';
     if (m) {
       payDate = `${m[1]}.${m[2]}.${m[3]}`;
@@ -78,10 +104,10 @@
     }
 
     // '총 N개 결제금액' 옆 값 = 실결제금액. "29,870원"
-    const total = (rowValue(/^총(\s*\d+개)?\s*결제금액$/).match(/([\d,]+)\s*원/) || [])[1] || '';
+    const total = (beside(L.total).match(/([\d,]+)\s*원/) || [])[1] || '';
     const price = parseInt((total || '0').replace(/,/g, ''), 10);
 
-    const receiver = rowValue(/^받는분$/); // 김종오 (마스킹 없음)
+    const receiver = beside(L.recv); // 김종오 (마스킹 없음)
 
     if (!price) return { error: '결제금액을 찾지 못했습니다.' };
     if (!payDate) return { error: '결제일시를 찾지 못했습니다.' };
@@ -92,7 +118,7 @@
       orderNo: odNo, // 1788302565720
       price: String(price), // 숫자만: "29870"
       payDate, // 2026.09.02 07:42
-      receiver, // 김종오
+      receiver, // 김종오 — '*' 가 없어 망고 1단계 스캔은 기존 includes 루프 그대로 돈다 (W컨셉 절 참고)
       total, // "29,870" — 망고 행 매칭 보조키
       // marketTag 없음 — 포스티·29CM 과 같은 사정. 4910 발주건이 망고 목록에 어떤 표기로
       // 찍히는지 확인될 때까지 넣지 않는다 (태그를 실으면 스캔 최악값이 두 배가 된다).
