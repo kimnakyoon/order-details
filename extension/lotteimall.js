@@ -129,7 +129,7 @@
     if (!pd) return { error: '결제일시를 찾지 못했습니다.' + probe() };
     if (!who) return { error: '받으시는 분(수령인)을 찾지 못했습니다.' + probe() };
 
-    const shown = document.querySelector('.Nodview_di1 p.txt');
+    const shown = shownEl();
     const m = shown && shown.textContent.match(SHOWN_NO);
 
     return {
@@ -147,10 +147,25 @@
     };
   }
 
+  // 상단 '주문번호 : 2026-08-28-C20072 [인터넷]' 줄은 `anchor()` (버튼 자리) 와 `extract()`
+  // (화면 표기 주문번호) 가 둘 다 쓴다. 한 번 찾아 나눠 쓴다 — 서버가 다 그려 주는 문서라
+  // 바뀔 일이 없지만, 그래도 떨어져 나갔으면(`isConnected`) 다시 찾는다.
+  //
+  // 선택자는 그대로 둔다. GS SHOP 에서는 머리글 **안에서** 클래스로 집는 쪽이 빨랐지만, 여기는
+  // `.txt` 가 흔한 클래스라 `.Nodview_di1` 안의 `.txt` 컬렉션을 도는 쪽(0.0052 ms)이 하위
+  // 선택자 한 번(0.0030 ms)보다 느렸다 (2026-09-02 실측, README 성능 절). 이득은 두 번 찾던
+  // 것을 한 번으로 줄이는 데서만 난다 — 추출 한 번이 0.0228 → 0.0196 ms.
+  let shownCache = null;
+  function shownEl() {
+    if (shownCache && shownCache.isConnected) return shownCache;
+    shownCache = document.querySelector('.Nodview_di1 p.txt');
+    return shownCache;
+  }
+
   // 상단 '주문번호 : 2026-08-28-C20072 [인터넷]' 의 [인터넷] 뒤에 버튼을 붙인다.
   // (p 자체에 붙이면 블록이라 줄이 바뀐다. 안쪽 span 뒤여야 같은 줄에 들어간다.)
   function anchor() {
-    const p = document.querySelector('.Nodview_di1 p.txt');
+    const p = shownEl();
     if (!p) return null;
     return p.querySelector('span') || p;
   }
