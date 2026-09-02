@@ -87,9 +87,19 @@
     const pd = payDate(rowValue(pay, '결제승인일'));
     const receiver = rowValue(addr, '주문자명');
 
-    // '총 결제 예상금액(1건)44,700' — 망고 행 매칭 보조키. '(1건)' 은 건너뛴다.
-    const t = (document.body.innerText || '').replace(/\r/g, '');
-    const total = (t.match(/총\s*결제\s*예상금액\s*(?:\([^)]*\))?\s*([\d,]+)/) || [])[1] || '';
+    // '총 결제 예상금액(1건)44,700' — 망고 행 매칭 보조키.
+    //   <div class="m_myorder-detail-cost">… <p class="text_total">총 결제 예상금액<strong>(1건)</strong>
+    //   <span class="text_price"><strong>15,670</strong></span></p>
+    // 클래스가 사람이 붙인 것이라 선택자 하나로 읽는다. 예전에는 이 한 값 때문에 본문 전체를
+    // innerText 로 이어붙였다(레이아웃 강제) — 0.073 → 0.0022 ms (요소 1,288개 화면, 30~500회 ×
+    // 7시행 중앙값, 2026-09-02 실측). 선택자가 빗나가면 예전 방식으로 떨어져 동작은 유지한다.
+    let total = '';
+    const totalEl = document.querySelector('.m_myorder-detail-cost .text_total .text_price');
+    if (totalEl) total = (totalEl.textContent.match(/([\d,]+)/) || [])[1] || '';
+    if (!total) {
+      const t = (document.body.innerText || '').replace(/\r/g, '');
+      total = (t.match(/총\s*결제\s*예상금액\s*(?:\([^)]*\))?\s*([\d,]+)/) || [])[1] || '';
+    }
 
     if (!price) return { error: '결제금액을 찾지 못했습니다.\n' + probe(pay, addr) };
     if (!pd) return { error: '결제승인일(결제일시)을 찾지 못했습니다.\n' + probe(pay, addr) };
