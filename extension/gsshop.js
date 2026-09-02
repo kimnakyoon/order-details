@@ -38,6 +38,12 @@
 //
 // 시각은 어디에도 없다. 롯데온·SSG·패션플러스·롯데아이몰·CJ온스타일·NS몰과 같이 날짜만 넘긴다.
 //
+// 머리글 `p.order_txt_area2` 는 문서에 하나뿐인데 `anchor()` 와 `extract()` 가 둘 다 쓴다.
+// 그래서 **한 번 찾아 둘이 나눠 쓰고**, 그 안의 번호 칸은 문서 전체를 훑는 하위 선택자
+// (`.order_txt_area2 .order_txt_num`) 대신 그 요소 안에서 클래스로 집는다. 같은 요소를
+// 돌려주면서 `anchor()` 가 절반이 됐다 (README 성능 절, 2026-09-02 실측). 캐시는 망고 쪽과
+// 같은 장치로 낡음을 스스로 확인한다 — 떨어져 나갔으면(`isConnected`) 다시 찾는다.
+//
 // ── 주소에는 `ecOrdTypCd` 가 반드시 붙어야 한다 ─────────────────────────────
 //
 // `ordNo` 만 남기고 열면 901바이트짜리 '요청하신 페이지에 연결할 수 없습니다' 가 온다 (실측).
@@ -87,6 +93,14 @@
       no +
       (typCache ? '&ecOrdTypCd=' + typCache : '')
     );
+  }
+
+  // 머리글은 문서당 한 번만 찾는다 (윗주석 참고).
+  let headCache = null;
+  function head() {
+    if (headCache && headCache.isConnected) return headCache;
+    headCache = document.querySelector('.order_txt_area2');
+    return headCache;
   }
 
   // 첫 항목이 '결제금액' 인 목록 = 결제정보 (윗주석 참고).
@@ -147,8 +161,8 @@
     if (!ul) return { error: '결제정보를 찾지 못했습니다.\n[본문] ' + dump('.order_half') };
     const { price, total } = payment(ul);
 
-    const head = document.querySelector('.order_txt_area2');
-    const pd = ((head && head.textContent) || '').match(PAY_DATE);
+    const hd = head();
+    const pd = ((hd && hd.textContent) || '').match(PAY_DATE);
     const who = receiver();
 
     if (!price) {
@@ -177,7 +191,9 @@
   function anchor() {
     const no = ordNo();
     if (!no) return null;
-    const spans = document.querySelectorAll('.order_txt_area2 .order_txt_num');
+    const hd = head();
+    if (!hd) return null;
+    const spans = hd.getElementsByClassName('order_txt_num');
     for (let i = 0; i < spans.length; i++) {
       if (spans[i].textContent.trim() === no) return spans[i];
     }
