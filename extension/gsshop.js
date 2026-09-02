@@ -24,6 +24,15 @@
 // 롯데온에서 L.POINT 를, SSG 에서 SSG MONEY 를, CJ온스타일에서 `P` 항목을 빼는 것과 같은
 // 규칙이고, 판별도 같은 자리에서 한다 — 금액 뒤에 붙은 단위가 `원` 인 줄만 더한다.
 //
+// 단위가 `원` 이어도 **적립금은 뺀다** (2026-09-03, 주문 3470660697):
+//
+//     결제금액        41,460원
+//     네이버페이      37,110원      <- 실제로 빠져나간 돈 = 구입금액
+//     이벤트적립금     4,350원      <- 단위는 원이지만 적립금이다. 더하지 않는다
+//
+// GS SHOP 은 포인트(`P`)와 적립금(`원`)을 따로 표기한다. 적립금은 돈이 아니므로 단위만 보고는
+// 걸러지지 않아 **라벨**로 뺀다 — 이름에 `적립금`·`포인트` 가 들어간 줄은 건너뛴다.
+//
 // 첫 줄(`결제금액`)은 합에서 빼야 한다. 그 줄까지 더하면 총액을 두 번 세게 된다. 줄을
 // 자리(첫 번째)나 클래스(`.title_option`)가 아니라 **라벨 이름**으로 골라내므로, 결제수단이
 // 여럿이라 줄이 늘어나거나 순서가 바뀌어도 같은 값이 나온다.
@@ -63,6 +72,7 @@
   // 정규식은 부를 때마다 다시 만들지 않는다.
   const PAY_DATE = /20\d\d\.\d{2}\.\d{2}/;
   const WON = /원$/;
+  const NOT_MONEY = /적립금|포인트/; // 단위가 원이어도 돈이 아닌 줄 (윗주석 참고)
 
   const num = (s) => parseInt(String(s).replace(/[^\d]/g, ''), 10) || 0;
   const label = (el) => el.textContent.replace(/\s/g, '');
@@ -133,10 +143,12 @@
       const em = lis[i].querySelector('dd em');
       if (!dt || !em) continue;
       const v = em.textContent.trim();
-      if (label(dt) === '결제금액') {
+      const name = label(dt);
+      if (name === '결제금액') {
         total = (v.match(/[\d,]+/) || [''])[0]; // "25,465"
         continue;
       }
+      if (NOT_MONEY.test(name)) continue; // 이벤트적립금(`4,350원`)은 여기서
       if (WON.test(v)) price += num(v); // 포인트(`48P`)는 여기서 걸러진다
     }
     return { price, total };
