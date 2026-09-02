@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "마켓 주문상세 → The.Mango 전송",
-  "version": "1.18.0",
-  "description": "롯데온·SSG·무신사·네이버페이·패션플러스·지마켓·롯데아이몰·더현대Hi·CJ온스타일·NS몰·GS SHOP·옥션·현대몰·11번가·SSF샵·W컨셉·포스티·29CM 주문상세 정보를 클릭 한 번으로 The.Mango 주문건에 옮기고 주문상태를 배송완료로 변경합니다.",
+  "version": "1.19.0",
+  "description": "롯데온·SSG·무신사·네이버페이·패션플러스·지마켓·롯데아이몰·더현대Hi·CJ온스타일·NS몰·GS SHOP·옥션·현대몰·11번가·SSF샵·W컨셉·포스티·29CM·4910 주문상세 정보를 클릭 한 번으로 The.Mango 주문건에 옮기고 주문상태를 배송완료로 변경합니다.",
   "permissions": ["tabs", "scripting", "notifications", "storage"],
   "host_permissions": [
     "https://www.lotteon.com/*",
@@ -23,6 +23,7 @@
     "https://www.wconcept.co.kr/*",
     "https://posty.kr/*",
     "https://www.29cm.co.kr/*",
+    "https://4910.kr/*",
     "https://pay.musinsapayments.com/*",
     "https://dashboard.tosspayments.com/*",
     "https://tmg4087.mycafe24.com/*",
@@ -141,6 +142,12 @@
     {
       "matches": ["https://www.29cm.co.kr/order/my-order/*"],
       "js": ["common.js", "29cm.js"],
+      "css": ["site.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://4910.kr/order*"],
+      "js": ["common.js", "4910.js"],
       "css": ["site.css"],
       "run_at": "document_idle"
     }

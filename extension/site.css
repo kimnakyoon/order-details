@@ -3,6 +3,9 @@
 button.lm-send-btn.lm-btn-inline {
   display: inline-block;
   vertical-align: middle;
+  /* 4910 헤더처럼 앵커의 부모가 flex 세로 컨테이너면 버튼이 flex 아이템이 되어 가로로 꽉 늘어난다.
+     너비를 내용만큼으로 고정해 막는다. 블록·flex 가로 부모에서는 원래 크기와 같아 영향이 없다. */
+  width: max-content;
   margin-left: 10px;
   padding: 5px 12px;
   font: 600 13px/1.2 "Malgun Gothic", sans-serif;
