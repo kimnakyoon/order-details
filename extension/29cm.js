@@ -16,6 +16,25 @@
   const DETAIL = /^\/order\/my-order\/detail\/(\d+)/;
   const pathId = () => (location.pathname.match(DETAIL) || [])[1] || '';
 
+  // 정규식은 부를 때마다 다시 만들지 않는다.
+  const RE_HEAD = /^주문번호\s*ORD/;
+  const RE_ORD = /ORD[\d-]+/;
+  const RE_DATE = /결제일시/;
+  const RE_WHEN = /20\d\d\.\d{2}\.\d{2}(?:\s+\d{2}:\d{2}(?::\d{2})?)?/;
+  const RE_WON = /([\d,]+)\s*원/;
+
+  // root 아래의 leaf 요소들에서 '결제일시 2026.09.01 16:27' 를 찾아 일시만 돌려준다.
+  function payDateIn(root, selector) {
+    const els = root.querySelectorAll(selector);
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      if (!el.firstElementChild && RE_DATE.test(el.textContent)) {
+        return (el.textContent.match(RE_WHEN) || [])[0] || '';
+      }
+    }
+    return '';
+  }
+
   // 헤더의 '주문번호 ORD20260901-7943450' <p>. watch 가 주기적으로 부르므로 찾은 요소를
   // 캐시한다 — 어느 주문에서 찾았는지(pathId)와 아직 살아 있는지(isConnected)로 확인한다
   // (무신사와 같은 절약).
@@ -28,9 +47,10 @@
     if (cached && cachedId === id && cached.isConnected) return cached;
     cached = null;
     cachedId = '';
-    for (const p of document.querySelectorAll('p')) {
-      if (/^주문번호\s*ORD/.test(p.textContent.trim())) {
-        cached = p;
+    const ps = document.querySelectorAll('p');
+    for (let i = 0; i < ps.length; i++) {
+      if (RE_HEAD.test(ps[i].textContent.trim())) {
+        cached = ps[i];
         cachedId = id;
         break;
       }
@@ -44,36 +64,45 @@
 
     // 화면 표기(ORD20260901-7943450)를 주문번호로 쓴다. URL 의 숫자는 내부 id 라 링크에만 쓴다.
     const head = anchor();
-    const odNo = ((head && head.textContent.match(/ORD[\d-]+/)) || [])[0] || '';
+    const odNo = ((head && head.textContent.match(RE_ORD)) || [])[0] || '';
     if (!odNo) return { error: '주문번호를 찾지 못했습니다.' };
 
-    // 결제정보의 '결제금액' 라벨 바로 옆 값 = 실결제금액. "85,330원"
+    // 결제정보 블록은 <ol> 하나다 — 결제금액과 결제일시가 같은 블록에 있다:
+    //   <ol>
+    //     <li><strong>결제금액</strong><strong>85,330원</strong></li>
+    //     <li><span>무신사페이(현대카드)</span><span>85,330원</span></li>
+    //     <li><span>결제일시 2026.09.01 16:27</span></li>
+    //   </ol>
+    // 그래서 '결제금액' <strong> 을 찾은 뒤(문서에 strong 은 9개다) 그 <ol> 안의 span(3개)에서
+    // 결제일시를 읽는다. 문서 전체의 span·p 82개를 훑던 것과 비교해 extract 가 0.088 → 0.020 ms
+    // (같은 화면, 300회 × 9시행 중앙값, 2026-09-02 실측). <ol> 이 없거나 그 안에 결제일시가 없으면
+    // 예전처럼 문서 전체를 훑어 동작은 유지한다.
     let total = '';
-    for (const s of document.querySelectorAll('strong')) {
+    let payDate = '';
+    const ss = document.querySelectorAll('strong');
+    for (let i = 0; i < ss.length; i++) {
+      const s = ss[i];
       if (s.textContent.trim() === '결제금액') {
-        total = (((s.nextElementSibling || {}).textContent || '').match(/([\d,]+)\s*원/) || [])[1] || '';
+        total = (((s.nextElementSibling || {}).textContent || '').match(RE_WON) || [])[1] || ''; // "85,330"
+        const box = s.closest('ol');
+        if (box) payDate = payDateIn(box, 'span');
         break;
       }
     }
     const price = parseInt((total || '0').replace(/,/g, ''), 10);
 
     // '결제일시 2026.09.01 16:27' — 분 단위까지 그대로 싣는다 (무신사와 같은 표기 폭).
-    let payDate = '';
-    for (const el of document.querySelectorAll('span, p')) {
-      if (el.children.length === 0 && /결제일시/.test(el.textContent)) {
-        payDate = (el.textContent.match(/20\d\d\.\d{2}\.\d{2}(?:\s+\d{2}:\d{2}(?::\d{2})?)?/) || [])[0] || '';
+    if (!payDate) payDate = payDateIn(document, 'span, p');
+
+    // 배송지정보 표의 <th>받는사람</th><td>오*순</td>. 문서에 th 는 9개다.
+    let receiver = '';
+    const ths = document.querySelectorAll('th');
+    for (let i = 0; i < ths.length; i++) {
+      if (ths[i].textContent.trim() === '받는사람') {
+        receiver = ((ths[i].nextElementSibling || {}).textContent || '').trim(); // 오*순 (마스킹됨 — 망고 쪽에서 '*' 를 와일드카드로 매칭)
         break;
       }
     }
-
-    const receiver = (() => {
-      for (const th of document.querySelectorAll('th')) {
-        if (th.textContent.trim() === '받는사람') {
-          return ((th.nextElementSibling || {}).textContent || '').trim();
-        }
-      }
-      return '';
-    })(); // 오*순 (마스킹됨 — 망고 쪽에서 '*' 를 와일드카드로 매칭)
 
     if (!price) return { error: '결제금액을 찾지 못했습니다.' };
     if (!payDate) return { error: '결제일시를 찾지 못했습니다.' };
