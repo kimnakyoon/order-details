@@ -1,4 +1,12 @@
-// GS SHOP(www.gsshop.com) 상세주문내역 팝업 -> 망고 전송용 값 추출
+// GS SHOP(www.gsshop.com · with.gsshop.com) 상세주문내역 팝업 -> 망고 전송용 값 추출
+//
+// ── 같은 팝업이 두 호스트에서 열린다 ─────────────────────────────────────────
+//
+// `www.gsshop.com` 과 `with.gsshop.com` 이 **같은 주문번호에 같은 화면**을 내려준다 (2026-09-03
+// 실측, 주문 3470660697 — 머리글·결제정보·배송지 구조가 동일하고 `www` 쪽이 `with` 로 넘어가지도
+// 않는다). 어느 쪽 마이페이지에서 [상세주문내역] 을 눌렀느냐에 따라 호스트만 달라진다. 그래서
+// 매니페스트가 두 호스트를 다 받고, 간단메모에 넣는 URL 은 **지금 열린 호스트**(`location.origin`)
+// 로 만든다 — `www` 로 고정해 두면 `with` 에서 연 사람이 나중에 다른 호스트로 튀게 된다.
 //
 // 롯데온과 같은 부류다 — 서버가 값을 다 그려서 내려준다. 주소를 그대로 `fetch` 해 받은
 // 41KB HTML 안에 주문번호·주문일·받으시는 분·결제금액이 **전부 문자열로 들어 있다** (실측).
@@ -86,10 +94,12 @@
     return noCache;
   }
 
+  // 호스트는 지금 열린 쪽(`www` 또는 `with`)을 그대로 쓴다 (윗주석 참고).
   function pageUrl(no) {
     readParams();
     return (
-      'https://www.gsshop.com/ord/dlvcursta/popup/ordDtl.gs?ordNo=' +
+      location.origin +
+      '/ord/dlvcursta/popup/ordDtl.gs?ordNo=' +
       no +
       (typCache ? '&ecOrdTypCd=' + typCache : '')
     );

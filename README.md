@@ -62,6 +62,7 @@ elay.log` 에 쌓인다 (부팅마다 새로 쓴다).
    - CJ온스타일 `base.cjonstyle.com/p/myzone/orderInfo/...`
    - NS몰 `m.nsmall.com/cs/order-detail?orderNum=...`
    - GS SHOP `www.gsshop.com/ord/dlvcursta/popup/ordDtl.gs?ordNo=...&ecOrdTypCd=...`
+    (`with.gsshop.com` 으로 열려도 같다 — 마이페이지가 어느 호스트였느냐의 차이일 뿐이다)
    - 옥션 주문내역조회에서 **[주문상세보기]** 클릭 → 목록 위에 뜨는 주문상세정보 레이어
    - 현대몰 `www.hmall.com/mo/mpa/selectOrdPTCPup?ordNo=...`
      (마이페이지에서 **[주문/배송 상세]** 를 눌러 들어가도 된다 — 새로고침할 필요 없다)
@@ -1819,6 +1820,11 @@ MV3 service worker 는 30초면 잠든다. 받는 쪽을 계속 깨워 두려면
 - **상세주문내역은 별도 팝업 한 장이다** (`www.gsshop.com/ord/dlvcursta/popup/ordDtl.gs`).
   서버가 값을 다 그려서 내려주므로 롯데온처럼 `watch` 없이 붙고, `place()` 가 첫 호출에 성공한다
   (위 성능 절).
+- **같은 팝업이 `with.gsshop.com` 에서도 열린다.** 주문 3470660697 을 두 호스트에서 열어 보면
+  머리글·결제정보·배송지 구조가 같고, `www` 가 `with` 로 넘어가지도 않는다 (2026-09-03 실측).
+  어느 마이페이지에서 [상세주문내역] 을 눌렀느냐에 따라 호스트만 다르다. 매니페스트가 두 호스트를
+  다 받고(`host_permissions` + `content_scripts.matches`), 간단메모 URL 은 **지금 열린 호스트**
+  (`location.origin`)로 만든다 — `www` 로 고정하면 `with` 에서 연 사람이 다른 호스트로 튄다.
 - **주소에 `ecOrdTypCd` 가 반드시 붙어야 한다.** `ordNo` 만 남기고 열면 901바이트짜리
   '요청하신 페이지에 연결할 수 없습니다' 가 온다 (실측). 간단메모에 넣는 URL 은 나중에 사람이
   눌러서 다시 여는 주소라, **지금 주소의 `ecOrdTypCd` 를 그대로 물려서** 만든다.
@@ -1876,6 +1882,12 @@ elay.log`)에는 이날 웨일·엣지에서 무신사 3건이 넘어왔을 뿐 
     가능성이 제일 크다 — 매니페스트의 content script 목록은 **새로고침해야** 다시 읽힌다.
     `whale://extensions` · `edge://extensions` 카드의 버전이 `1.19.5` 보다 낮으면 그것이다.
     새로고침(⟳) 뒤 GS SHOP 목록 탭도 새로고침하고 [상세주문내역] 을 다시 연다.
+  - **답은 따로 있었다 (2026-09-03).** 안 뜬 팝업의 주소는
+    `with.gsshop.com/ord/dlvcursta/popup/ordDtl.gs?ordNo=3470660697&ecOrdTypCd=S` 였다 — 경로는
+    같은데 **호스트가 `www` 가 아니라 `with`** 다. 매니페스트가 `www.gsshop.com` 만 받고 있어
+    content script 가 아예 주입되지 않았다(`window.__LM_SITE__` 없음). 같은 주문을 `www` 로
+    열면 버튼이 붙는다. 1.19.8 부터 두 호스트를 다 받는다 (위 '같은 팝업이 `with.gsshop.com`
+    에서도 열린다').
 
 ### 옥션
 
