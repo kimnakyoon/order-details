@@ -1,6 +1,8 @@
 // 11번가 주문상세 페이지 -> 망고 전송용 값 추출
 //
-// 주문상세(BuyManager.tmall?method=getOrderDetailInfo)는 서버가 다 그려 주는 고전 페이지다
+// 주문상세(BuyManager.tmall?method=getOrderDetailInfo)는 서버가 다 그려 주는 고전 페이지다.
+// 같은 화면이 두 경로로 열린다 — /my11st/order/BuyManager.tmall 과 /order/BuyManager.tmall
+// (주문목록에서 들어가면 뒤쪽으로 온다. 2026-09-03 사용자 제보). 매니페스트가 둘 다 받는다.
 // (GS SHOP 과 같은 결). 값은 화면에서 바로 읽되, **결제일시만은 화면에 없다** — '결제영수증
 // 출력' 팝업(viewReceipt.tmall)의 '주문일'(초 단위)이 유일한 출처다. 같은 오리진이라 팝업을
 // 띄우지 않고 fetch 로 조용히 받아 읽는다 (무신사 거래명세서와 같은 방식).
@@ -70,21 +72,41 @@
   let pdCache = { no: '', v: '' };
   let asked = '';
 
-  async function receiptDate(no) {
-    if (pdCache.no === no && pdCache.v) return pdCache.v;
-    const r = await fetch(
-      '/my11st/receipt/viewReceipt.tmall?method=orderReceipt&ordNo=' + no + '&isSSL=Y'
-    );
+  // 영수증 주소. 확인된 것은 /my11st/receipt/… 뿐이다. 주문상세가 /order/… 로 열렸을 때 영수증도
+  // 같은 층(/receipt/…)에 있을 수 있어, 첫 주소가 실패하면 그것을 한 번 더 시도한다 — 아직
+  // 그 경로가 필요했던 적은 없다 (README '11번가').
+  function receiptPaths() {
+    const q = '?method=orderReceipt&ordNo=';
+    const first = '/my11st/receipt/viewReceipt.tmall' + q;
+    const here =
+      location.pathname.replace(/\/order\/BuyManager\.tmall$/, '/receipt/viewReceipt.tmall') + q;
+    return here !== location.pathname + q && here !== first ? [first, here] : [first];
+  }
+
+  async function fetchReceipt(url) {
+    const r = await fetch(url);
     if (!r.ok) throw new Error('영수증 응답 ' + r.status);
     const buf = await r.arrayBuffer();
     let html = new TextDecoder('utf-8').decode(buf);
     if (html.indexOf('주문일') === -1) html = new TextDecoder('euc-kr').decode(buf);
     const m = html.match(PAY_DATE);
     if (!m) throw new Error('영수증에서 주문일을 찾지 못했습니다.');
-    const v =
-      `${m[1]}.${p2(m[2])}.${p2(m[3])}` + (m[4] ? ' ' + m[4].padStart(8, '0') : '');
-    pdCache = { no, v };
-    return v;
+    return `${m[1]}.${p2(m[2])}.${p2(m[3])}` + (m[4] ? ' ' + m[4].padStart(8, '0') : '');
+  }
+
+  async function receiptDate(no) {
+    if (pdCache.no === no && pdCache.v) return pdCache.v;
+    let err;
+    for (const base of receiptPaths()) {
+      try {
+        const v = await fetchReceipt(base + no + '&isSSL=Y');
+        pdCache = { no, v };
+        return v;
+      } catch (e) {
+        err = e;
+      }
+    }
+    throw err;
   }
 
   function prefetch() {
@@ -112,11 +134,9 @@
     }
 
     return {
-      // 주문상세 주소에는 주문번호가 없다(세션에서 찾아 그린다). ordNo 를 붙여 두면 적어도
-      // 주문 화면까지는 간다 — 해당 주문으로 바로 열리는지는 아직 확인하지 못했다 (README).
-      url:
-        'https://buy.11st.co.kr/my11st/order/BuyManager.tmall?method=getOrderDetailInfo&ordNo=' +
-        no,
+      // 지금 열린 경로(/my11st/order/… 또는 /order/…)에 ordNo 를 붙인다. 주문목록이 주는
+      // /order/… 주소는 ordNo 를 달고 오므로, 그 경로라면 해당 주문으로 바로 열린다.
+      url: location.origin + location.pathname + '?method=getOrderDetailInfo&ordNo=' + no,
       orderNo: no, // 20260901096939093
       price: total.replace(/,/g, ''), // 숫자만
       payDate, // 2026.09.01 08:03:55
