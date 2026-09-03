@@ -73,9 +73,9 @@
   let pdCache = { no: '', v: '' };
   let asked = '';
 
-  // 영수증 주소. 확인된 것은 /my11st/receipt/… 뿐이다. 주문상세가 /order/… 로 열렸을 때 영수증도
-  // 같은 층(/receipt/…)에 있을 수 있어, 첫 주소가 실패하면 그것을 한 번 더 시도한다 — 아직
-  // 그 경로가 필요했던 적은 없다 (README '11번가').
+  // 영수증 주소. /my11st/receipt/… 와 /receipt/… 둘 다 같은 영수증을 준다 (2026-09-03 사용자
+  // 확인, 주소창으로 열어 봄). 늘 앞쪽부터 받고, 주문상세가 /order/… 로 열렸을 때만 실패 시
+  // 같은 층(/receipt/…)을 한 번 더 시도한다 — 아직 그 폴백이 필요했던 적은 없다 (README '11번가').
   function receiptPaths() {
     const q = '?method=orderReceipt&ordNo=';
     const first = '/my11st/receipt/viewReceipt.tmall' + q;
